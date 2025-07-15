@@ -46,3 +46,4 @@ Npgsql.PostgresException (0x80004005): 42P01: отношение "public.employe
     Line: 914
     Routine: regclassin
 42P01: отношение "public.employees_id_seq" не существует
+PS C:\BPM\bpm\bpmbaseapi>
