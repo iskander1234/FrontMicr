@@ -1,69 +1,48 @@
-    public async Task Update2(List<Employee> employees)
-    {
-        try
-        {
-            await using var transaction = await context.Database.BeginTransactionAsync();
+"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=13032 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.13 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
+? Ошибка при вставке сотрудников: An error occurred while saving the entity changes. See the inner exception for details.
+Unhandled exception. Microsoft.EntityFrameworkCore.DbUpdateException: An error occurred while saving the entity changes. See the inner exception for details.
+ ---> Npgsql.PostgresException (0x80004005): 23503: INSERT или UPDATE в таблице "Employees" нарушает ограничение внешнего ключа "employees_manager_tab_number_fkey"
 
-            // 1. Удаляем старые записи
-            var allEmployees = await context.Employees.ToListAsync();
-            context.Employees.RemoveRange(allEmployees);
-            await context.SaveChangesAsync();
+DETAIL: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
+   at Npgsql.Internal.NpgsqlConnector.ReadMessageLong(Boolean async, DataRowLoadingMode dataRowLoadingMode, Boolean readingNotifications, Boolean isReadingPrependedMessage)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteReader(Boolean async, CommandBehavior behavior, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteReader(Boolean async, CommandBehavior behavior, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteReaderAsync(RelationalCommandParameterObject parameterObject, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Update.ReaderModificationCommandBatch.ExecuteAsync(IRelationalConnection connection, CancellationToken cancellationToken)
+  Exception data:
+    Severity: ОШИБКА
+    SqlState: 23503
+    MessageText: INSERT или UPDATE в таблице "Employees" нарушает ограничение внешнего ключа "employees_manager_tab_number_fkey"
+    Detail: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
+    SchemaName: public
+    TableName: Employees
+    ConstraintName: employees_manager_tab_number_fkey
+    File: ri_triggers.c
+    Line: 2610
+    Routine: ri_ReportViolation
+   --- End of inner exception stack trace ---
+   at Microsoft.EntityFrameworkCore.Update.ReaderModificationCommandBatch.ExecuteAsync(IRelationalConnection connection, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.ChangeTracking.Internal.StateManager.SaveChangesAsync(IList`1 entriesToSave, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.ChangeTracking.Internal.StateManager.SaveChangesAsync(StateManager stateManager, Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
+   at Npgsql.EntityFrameworkCore.PostgreSQL.Storage.Internal.NpgsqlExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)        
+   at Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
+   at Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
+   at DinDin.Repositories.EmployeeRepository.Update2(List`1 employees) in C:\BPM\Leshan\1\DinDin\Repositories\EmployeeRepository.cs:line 83
+   at DinDin.Repositories.EmployeeRepository.Update2(List`1 employees) in C:\BPM\Leshan\1\DinDin\Repositories\EmployeeRepository.cs:line 126
+   at DinDin.Program.StartData(ServiceProvider serviceProvider) in C:\BPM\Leshan\1\DinDin\Program.cs:line 74
+   at DinDin.Program.Main() in C:\BPM\Leshan\1\DinDin\Program.cs:line 24
+   at DinDin.Program.<Main>()
 
-            // 2. Вставляем сотрудников без менеджера
-            var insertedTabNumbers = new HashSet<string>();
 
-            var firstBatch = employees
-                .Where(e => string.IsNullOrWhiteSpace(e.ManagerTabNumber))
-                .ToList();
 
-            context.Employees.AddRange(firstBatch);
-            await context.SaveChangesAsync();
 
-            insertedTabNumbers.UnionWith(firstBatch.Select(e => e.TabNumber));
 
-            // 3. Вставляем остальных — только тех, чьи менеджеры уже вставлены
-            var remaining = employees
-                .Where(e => !string.IsNullOrWhiteSpace(e.ManagerTabNumber) &&
-                            !insertedTabNumbers.Contains(e.TabNumber))
-                .ToList();
 
-            int iteration = 0;
-            const int maxIterations = 10;
-
-            while (remaining.Any() && iteration < maxIterations)
-            {
-                var readyToInsert = remaining
-                    .Where(e => insertedTabNumbers.Contains(e.ManagerTabNumber))
-                    .ToList();
-
-                if (!readyToInsert.Any())
-                    break;
-
-                context.Employees.AddRange(readyToInsert);
-                await context.SaveChangesAsync();
-                insertedTabNumbers.UnionWith(readyToInsert.Select(e => e.TabNumber));
-                remaining = remaining
-                    .Where(e => !insertedTabNumbers.Contains(e.TabNumber))
-                    .ToList();
-
-                iteration++;
-            }
-
-            // 4. Выводим сотрудников, которых не удалось вставить
-            if (remaining.Any())
-            {
-                Console.WriteLine("❗ Не удалось вставить следующих сотрудников из-за отсутствующих менеджеров:");
-                foreach (var emp in remaining)
-                {
-                    Console.WriteLine($"- {emp.Name}, TabNumber: {emp.TabNumber}, ManagerTabNumber: {emp.ManagerTabNumber}");
-                }
-            }
-
-            await transaction.CommitAsync();
-            Console.WriteLine("✅ Сотрудники успешно обновлены.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"❌ Ошибка при вставке сотрудников: {ex.Message}");
-            throw;
-        }
