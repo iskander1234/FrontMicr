@@ -1,3 +1,5 @@
+Microsoft.Extensions.Logging.Console
+
 using System.DirectoryServices.Protocols;
 using System.Net;
 using DinDin.Models;
