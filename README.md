@@ -1,16 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.DirectoryServices.Protocols;
-using System.Net;
-using System.Text;
-using DailyDataUpdateApp.Models;
-using DailyDataUpdateApp.Services;
-using Microsoft.Extensions.Configuration;
-//using Novell.Directory.Ldap;
-
 internal abstract class LDAPService
 {
-    private const int PageSize = 1000;
+    private readonly ILogger<LDAPService> _logger;
     private readonly string _ldapServer;
     private readonly int _ldapPort;
     private readonly string _ldapBindDN;
@@ -19,60 +9,42 @@ internal abstract class LDAPService
     private readonly string _ldapCurrentFilter;
     private readonly string[] _filterKeys;
 
-    public virtual string Filter => "UserPerson";
-
-    protected LDAPService(IConfiguration configuration)
+    protected LDAPService(IConfiguration configuration, ILogger<LDAPService> logger)
     {
+        _logger = logger;
+
         var ldapSettings = configuration.GetSection("LDAPConfig");
-        _ldapServer = ldapSettings["Server"] ?? throw new NullReferenceException("LDAP Server is not specified");
+        _ldapServer = ldapSettings["Server"] ?? throw new ArgumentNullException("LDAP Server");
         _ldapPort = int.Parse(ldapSettings["Port"]);
-        _ldapBindDN = ldapSettings["BindDN"] ?? throw new NullReferenceException("BindDN is not specified");
-        _ldapPassword = ldapSettings["Password"] ?? throw new NullReferenceException("Password is not specified");
-        _ldapSearchBase = ldapSettings["SearchBase"] ?? throw new NullReferenceException("SearchBase is not specified");
+        _ldapBindDN = ldapSettings["BindDN"] ?? throw new ArgumentNullException("BindDN");
+        _ldapPassword = ldapSettings["Password"] ?? throw new ArgumentNullException("Password");
+        _ldapSearchBase = ldapSettings["SearchBase"] ?? throw new ArgumentNullException("SearchBase");
 
-        _ldapCurrentFilter = ldapSettings.GetSection($"Filters:{Filter}:Code").Value ?? throw new NullReferenceException(Filter + ":Code filter is not specified");
+        var filterKey = $"Filters:{Filter}:Code";
+        _ldapCurrentFilter = ldapSettings.GetValue<string>(filterKey) ?? throw new ArgumentNullException(filterKey);
 
-        _filterKeys = ldapSettings.GetSection($"Filters:{Filter}:Keys").GetChildren()?.Select(e => e.Value)?.ToArray() ?? throw new NullReferenceException(Filter + " Keys filter is not specified"); ;
+        _filterKeys = ldapSettings.GetSection($"Filters:{Filter}:Keys").Get<string[]>() ?? Array.Empty<string>();
     }
 
-
-    //public List<SearchResultEntry> LdapPagedSearch()
-    //{
-    //    var results = new List<SearchResultEntry>();
-    //    var pageSize = 1000;
-    //    var pagingControl = new PageResultRequestControl(pageSize);
-
-    //    using var ldapConnection = new System.DirectoryServices.Protocols.LdapConnection(new LdapDirectoryIdentifier(_ldapServer + ":" + _ldapPort));
-    //    ldapConnection.Credential = new NetworkCredential(_ldapBindDN, _ldapPassword);
-    //    ldapConnection.Bind();
-
-    //    while (true)
-    //    {
-    //        var searchRequest = new SearchRequest(_ldapSearchBase, _ldapUserPersonFilter, SearchScope.Subtree, _userFilterKeys)
-    //        {
-    //            Controls = { pagingControl }
-    //        };
-
-    //        var searchResponse = (SearchResponse)ldapConnection.SendRequest(searchRequest);
-    //        results.AddRange(searchResponse.Entries.Cast<SearchResultEntry>());
-
-    //        var pageResponse = (PageResultResponseControl)searchResponse.Controls[0];
-    //        if (pageResponse.Cookie.Length == 0)
-    //            break;
-
-    //        pagingControl.Cookie = pageResponse.Cookie;
-    //    }
-
-    //    return results;
-    //}
-
+    public virtual string Filter => "UserPerson";
 
     public IEnumerable<SearchResultEntry> LdapPagedSearch()
     {
-        using var ldapConnection = new LdapConnection(new LdapDirectoryIdentifier(_ldapServer + ":" + _ldapPort));
+        using var ldapConnection = new LdapConnection(new LdapDirectoryIdentifier(_ldapServer, _ldapPort));
         ldapConnection.Credential = new NetworkCredential(_ldapBindDN, _ldapPassword);
         ldapConnection.SessionOptions.ProtocolVersion = 3;
-        ldapConnection.Bind();
+
+        _logger.LogInformation("Connecting to LDAP server {Server}:{Port}", _ldapServer, _ldapPort);
+
+        try
+        {
+            ldapConnection.Bind();
+        }
+        catch (LdapException ex)
+        {
+            _logger.LogError(ex, "LDAP Bind failed: {Message}", ex.Message);
+            yield break;
+        }
 
         var searchRequest = GetRequest(_ldapSearchBase, _ldapCurrentFilter, _filterKeys, SearchScope.Subtree);
         var pageRequest = new PageResultRequestControl(PageSize);
@@ -85,16 +57,15 @@ internal abstract class LDAPService
             {
                 searchResponse = (SearchResponse)ldapConnection.SendRequest(searchRequest);
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine(_ldapCurrentFilter);
-                Console.WriteLine("\nUnexpected exception occurred:\n\t{0}: {1}", e.GetType().Name, e.Message);
+                _logger.LogError(ex, "Search request failed: {Message}", ex.Message);
                 yield break;
             }
 
-            if (searchResponse.Controls.Length != 1 || !(searchResponse.Controls[0] is PageResultResponseControl pageResponse))
+            if (searchResponse.Controls.Length == 0 || !(searchResponse.Controls[0] is PageResultResponseControl pageResponse))
             {
-                Console.WriteLine("Server does not support paging");
+                _logger.LogWarning("Server does not support paging");
                 yield break;
             }
 
@@ -110,37 +81,27 @@ internal abstract class LDAPService
         }
     }
 
-
     private static SearchRequest GetRequest(string dn, string filter, string[] returnAttrs, SearchScope scope = SearchScope.Subtree)
     {
         var request = new SearchRequest(dn, filter, scope, returnAttrs);
-
-        // Set controls for security descriptor and domain scope
-        var searchControl = new SearchOptionsControl(System.DirectoryServices.Protocols.SearchOption.DomainScope);
-        var securityDescriptorFlagControl = new SecurityDescriptorFlagControl
+        request.Controls.Add(new SecurityDescriptorFlagControl
         {
             SecurityMasks = SecurityMasks.Dacl | SecurityMasks.Owner
-        };
-        request.Controls.Add(securityDescriptorFlagControl);
-        request.Controls.Add(searchControl);
-
+        });
+        request.Controls.Add(new SearchOptionsControl(SearchOption.DomainScope));
         return request;
     }
 
-    public void PrintAttributes(in SearchResultEntry entry)
+    public void PrintAttributes(SearchResultEntry entry)
     {
         foreach (var key in _filterKeys)
         {
-            var selectedEntry = entry.Attributes[key];
-            if (selectedEntry != null)
+            if (entry.Attributes.Contains(key))
             {
-                var value = selectedEntry != null ? selectedEntry[0].ToString() : null;
-
-                if (value != null)
-                    Console.WriteLine($"{key}: {value}");
+                var value = entry.Attributes[key]?[0]?.ToString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    _logger.LogInformation("{Key}: {Value}", key, value);
             }
         }
-        Console.WriteLine();
     }
 }
-
