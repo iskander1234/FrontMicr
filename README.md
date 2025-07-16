@@ -79,10 +79,3 @@ public class LdapEmployeeSyncService
         return employees;
     }
 }
-
-
-.AddLogging(builder =>
-    {
-        builder.AddConsole(); // Включаем логи в консоль
-        builder.SetMinimumLevel(LogLevel.Information);
-    })
