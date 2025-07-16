@@ -1,51 +1,67 @@
+public async Task Update2(List<EmployeeEntity> employees)
 {
-    "name": "РђР±Р°РµРІР° РђРєР±РѕС‚Р° РђРґРёР»СЊС…Р°РЅРѕРІРЅР°",
-    "position": "РќР°С‡Р°Р»СЊРЅРёРє РѕС‚РґРµР»РµРЅРёСЏ",
-    "login": "",
-    "status_code": 6,
-    "status_description": "Р Р°Р±РѕС‚Р°",
-    "dep_id": "19.100392",
-    "dep_name": "РћС‚РґРµР»РµРЅРёРµ, СѓР». РљР°Р·С‹Р±РµРє Р‘Рё, 177",
-    "is_filial": "1",
-    "mail": "",
-    "local_phone": "0",
-    "mobile_phone": "+7(705) 737-39-76",
-    "is_manager": "1",
-    "manager_id": "1016",
-    "disabled": "0",
-    "tab_number": "187"
-  },
-  {
-    "name": "РђР±Р°Р№РґСѓР»Р»Р°РµРІ Р‘РѕР»Р°С‚ Р‘РµРєРµРЅРѕРІРёС‡",
-    "position": "Р“Р»Р°РІРЅС‹Р№ СЃРїРµС†РёР°Р»РёСЃС‚",
-    "login": "b.abaidullaev",
-    "status_code": 6,
-    "status_description": "Р Р°Р±РѕС‚Р°",
-    "dep_id": "19.100383",
-    "dep_name": "РЈРїСЂР°РІР»РµРЅРёРµ РїРѕ СЂР°Р±РѕС‚Рµ СЃ РїСЂРѕР±Р»РµРјРЅС‹РјРё Р°РєС‚РёРІР°РјРё",
-    "is_filial": "0",
-    "mail": "b.abaidullaev@enpf.kz",
-    "local_phone": "0",
-    "mobile_phone": "8 7077551113",
-    "is_manager": "0",
-    "manager_id": "319",
-    "disabled": "0",
-    "tab_number": "2922"
-  },
-  {
-    "name": "РђР±Р°Р№РґСѓР»Р»Р°РµРІР° РќР°Р·СѓРіСѓРј Р Р°С…РјСѓС‚СѓР»Р»Р°РµРІРЅР°",
-    "position": "РќР°С‡Р°Р»СЊРЅРёРє Р¦РµРЅС‚СЂР° РѕР±СЃР»СѓР¶РёРІР°РЅРёСЏ",
-    "login": "n.abaidullayeva",
-    "status_code": 5,
-    "status_description": "РћС‚РїСѓСЃРє РѕСЃРЅРѕРІРЅРѕР№",
-    "dep_id": "19.100074",
-    "dep_name": "Р¦РµРЅС‚СЂ РѕР±СЃР»СѓР¶РёРІР°РЅРёСЏ РІ СЃ. Р§СѓРЅРґР¶Р°",
-    "is_filial": "1",
-    "mail": "n.abaidullayeva@enpf.kz",
-    "local_phone": "0",
-    "mobile_phone": "+7(701) 399-94-92",
-    "is_manager": "1",
-    "manager_id": "622",
-    "disabled": "0",
-    "tab_number": "300"
-  },
+    try
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
+        // 1. Удаляем старые записи
+        var allEmployees = await _context.Employees.ToListAsync();
+        _context.Employees.RemoveRange(allEmployees);
+        await _context.SaveChangesAsync();
+
+        // 2. Вставляем сотрудников без manager_id или с manager_id, которого пока нет
+        var insertedTabNumbers = new HashSet<string>();
+
+        // a. Вставляем сначала сотрудников без менеджеров
+        var firstBatch = employees
+            .Where(e => string.IsNullOrWhiteSpace(e.ManagerId))
+            .ToList();
+
+        _context.Employees.AddRange(firstBatch);
+        await _context.SaveChangesAsync();
+        insertedTabNumbers.UnionWith(firstBatch.Select(e => e.TabNumber));
+
+        // b. Остальные вставляем по очереди — если их менеджер уже есть
+        var remaining = employees
+            .Where(e => !string.IsNullOrWhiteSpace(e.ManagerId) && !insertedTabNumbers.Contains(e.TabNumber))
+            .ToList();
+
+        int iteration = 0;
+        const int maxIterations = 10;
+
+        while (remaining.Any() && iteration < maxIterations)
+        {
+            var readyToInsert = remaining
+                .Where(e => insertedTabNumbers.Contains(e.ManagerId))
+                .ToList();
+
+            if (!readyToInsert.Any())
+                break;
+
+            _context.Employees.AddRange(readyToInsert);
+            await _context.SaveChangesAsync();
+            insertedTabNumbers.UnionWith(readyToInsert.Select(e => e.TabNumber));
+            remaining = remaining.Where(e => !insertedTabNumbers.Contains(e.TabNumber)).ToList();
+
+            iteration++;
+        }
+
+        // 3. Логируем тех, кого не удалось вставить
+        if (remaining.Any())
+        {
+            Console.WriteLine("❗ Не удалось вставить следующих сотрудников из-за отсутствующих менеджеров:");
+            foreach (var emp in remaining)
+            {
+                Console.WriteLine($"- {emp.Name}, TabNumber: {emp.TabNumber}, ManagerId: {emp.ManagerId}");
+            }
+        }
+
+        await transaction.CommitAsync();
+        Console.WriteLine("✅ Сотрудники успешно обновлены.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"❌ Ошибка при вставке сотрудников: {ex.Message}");
+        throw;
+    }
+}
