@@ -1,66 +1,33 @@
 using System.DirectoryServices.Protocols;
-using System.Net;
 using Microsoft.Extensions.Configuration;
+using DinDin.Models;
 
 namespace DinDin.Services;
 
-internal abstract class LDAPService
+internal class UserLdapService : LDAPService
 {
-    protected readonly string LdapHost;
-    protected readonly int LdapPort;
-    protected readonly string LdapUser;
-    protected readonly string LdapPassword;
-    protected readonly string LdapSearchBase;
+    public UserLdapService(IConfiguration configuration) : base(configuration) { }
 
-    protected virtual string Filter => "(objectClass=person)";
-
-    protected LDAPService(IConfiguration configuration)
+    public List<LDAPEmployee> GetLDAPEmployees()
     {
-        LdapHost = configuration["Ldap:Host"]!;
-        LdapPort = int.Parse(configuration["Ldap:Port"]!);
-        LdapUser = configuration["Ldap:User"]!;
-        LdapPassword = configuration["Ldap:Password"]!;
-        LdapSearchBase = configuration["Ldap:SearchBase"]!;
-    }
+        var entries = LdapPagedSearch();
 
-    protected List<SearchResultEntry> LdapPagedSearch()
-    {
-        var results = new List<SearchResultEntry>();
-        using var ldapConnection = new LdapConnection(new LdapDirectoryIdentifier(LdapHost, LdapPort));
-        ldapConnection.AuthType = AuthType.Basic;
-        ldapConnection.Bind(new NetworkCredential(LdapUser, LdapPassword));
-
-        var pageRequestControl = new PageResultRequestControl(1000);
-        var searchRequest = new SearchRequest(LdapSearchBase, Filter, SearchScope.Subtree, null);
-        searchRequest.Controls.Add(pageRequestControl);
-
-        while (true)
+        var employees = new List<LDAPEmployee>();
+        foreach (var entry in entries)
         {
-            var searchResponse = (SearchResponse)ldapConnection.SendRequest(searchRequest);
-            results.AddRange(searchResponse.Entries.Cast<SearchResultEntry>());
+            var employee = new LDAPEmployee
+            {
+                GivenName = entry.Attributes["givenName"]?[0]?.ToString(),
+                Name = entry.Attributes["cn"]?[0]?.ToString(),
+                Login = entry.Attributes["sAMAccountName"]?[0]?.ToString(),
+                Mail = entry.Attributes["mail"]?[0]?.ToString(),
+                UserStatusCode = int.TryParse(entry.Attributes["userAccountControl"]?[0]?.ToString(), out var code) ? code : 0,
+                IsDisabled = false
+            };
 
-            var pageResponse = searchResponse.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
-            if (pageResponse == null || pageResponse.Cookie.Length == 0) break;
-
-            pageRequestControl.Cookie = pageResponse.Cookie;
+            employees.Add(employee);
         }
 
-        return results;
+        return employees;
     }
 }
-
-
- private static async Task SyncLdapAsync(IServiceProvider serviceProvider)
-    {
-        var configuration = serviceProvider.GetRequiredService<IConfiguration>();
-        var context = serviceProvider.GetRequiredService<BpmcoreContext>();
-
-        var ldapService = new LDAPService(configuration);
-        var employees = ldapService.GetLDAPEmployees();
-
-        var repository = new LDAPUsersRepository(context);
-        await repository.UpdateByKey(employees);
-
-        Console.WriteLine($"✅ LDAP синхронизация завершена. Обновлено: {employees.Count} записей.");
-    }
-
