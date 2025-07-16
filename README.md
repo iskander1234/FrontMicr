@@ -27,3 +27,8 @@ public async Task InsertWithManagerResolutionAsync(List<EmployeeEntity> employee
 
     Console.WriteLine($"✅ Всего вставлено сотрудников: {inserted.Count}");
 }
+
+
+var employeeRepo = serviceProvider.GetRequiredService<EmployeeRepository>();
+var employees = await LoadEmployeesAsync(); // или Deserialize, или GetFromLdap
+await employeeRepo.InsertWithManagerResolutionAsync(employees);
