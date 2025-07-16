@@ -1,97 +1,51 @@
-using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using System.DirectoryServices.Protocols;
+using System.Net;
 
-namespace DinDin.Models;
-
-public partial class BpmcoreContext : DbContext
+namespace DinDin.Services.Ldap
 {
-    public BpmcoreContext()
+    internal abstract class LDAPService
     {
-    }
+        protected readonly string LdapHost;
+        protected readonly int LdapPort;
+        protected readonly string LdapUser;
+        protected readonly string LdapPassword;
+        protected readonly string LdapSearchBase;
 
-    public BpmcoreContext(DbContextOptions<BpmcoreContext> options)
-        : base(options)
-    {
-    }
+        protected virtual string Filter => "(objectClass=person)";
 
-    public virtual DbSet<Department> Departments { get; set; }
-
-    public virtual DbSet<Employee> Employees { get; set; }
-    public DbSet<LDAPEmployee> LdapEmployees => Set<LDAPEmployee>();
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        base.OnModelCreating(modelBuilder);
-
-        // Конфигурация из самого LDAPEmployee
-        modelBuilder.ApplyConfiguration(new LDAPEmployee());
-    }
-
-    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        => optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=bpmbase7;Username=postgres;Password=postgres")
-                        .EnableSensitiveDataLogging();
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.HasPostgresExtension("csd", "pgcrypto");
-
-        modelBuilder.Entity<Department>(entity =>
+        protected LDAPService(IConfiguration configuration)
         {
-            entity.HasKey(e => e.Id).HasName("departments2_pkey");
+            LdapHost = configuration["Ldap:Host"]!;
+            LdapPort = int.Parse(configuration["Ldap:Port"]!);
+            LdapUser = configuration["Ldap:User"]!;
+            LdapPassword = configuration["Ldap:Password"]!;
+            LdapSearchBase = configuration["Ldap:SearchBase"]!;
+        }
 
-            entity.ToTable("Departments", "public");
-
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.Actual).HasColumnName("actual");
-            entity.Property(e => e.ManagerId).HasColumnName("manager_id");
-            entity.Property(e => e.Name).HasColumnName("name");
-            entity.Property(e => e.ParentId).HasColumnName("parent_id");
-
-            entity.HasOne(d => d.Parent).WithMany(p => p.InverseParent)
-                .HasForeignKey(d => d.ParentId)
-                .OnDelete(DeleteBehavior.SetNull)
-                .HasConstraintName("departments2_parent_id_fkey");
-        });
-
-        modelBuilder.Entity<Employee>(entity =>
+        protected List<SearchResultEntry> LdapPagedSearch()
         {
-            entity.HasKey(e => e.Id).HasName("employees_pkey");
+            var results = new List<SearchResultEntry>();
+            using var ldapConnection = new LdapConnection(new LdapDirectoryIdentifier(LdapHost, LdapPort));
+            ldapConnection.AuthType = AuthType.Basic;
+            ldapConnection.Bind(new NetworkCredential(LdapUser, LdapPassword));
 
-            entity.ToTable("Employees", "public");
+            var pageRequestControl = new PageResultRequestControl(1000);
+            var searchRequest = new SearchRequest(LdapSearchBase, Filter, SearchScope.Subtree, null);
+            searchRequest.Controls.Add(pageRequestControl);
 
-            entity.HasIndex(e => e.TabNumber, "employees_tab_number_key").IsUnique();
+            while (true)
+            {
+                var searchResponse = (SearchResponse)ldapConnection.SendRequest(searchRequest);
+                results.AddRange(searchResponse.Entries.Cast<SearchResultEntry>());
 
-            entity.Property(e => e.Id)
-                .UseIdentityColumn() // если ты хочешь оставить sequence
-                .HasColumnName("id");
+                var pageResponse = searchResponse.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
+                if (pageResponse == null || pageResponse.Cookie.Length == 0) break;
 
-            entity.Property(e => e.DepId).HasColumnName("dep_id");
-            entity.Property(e => e.DepName).HasColumnName("dep_name");
-            entity.Property(e => e.Disabled).HasColumnName("disabled");
-            entity.Property(e => e.IsFilial).HasColumnName("is_filial");
-            entity.Property(e => e.IsManager).HasColumnName("is_manager");
-            entity.Property(e => e.LocalPhone).HasColumnName("local_phone");
-            entity.Property(e => e.Login).HasColumnName("login");
-            entity.Property(e => e.Mail).HasColumnName("mail");
-            entity.Property(e => e.ManagerTabNumber).HasColumnName("manager_tab_number");
-            entity.Property(e => e.MobilePhone).HasColumnName("mobile_phone");
-            entity.Property(e => e.Name).HasColumnName("name");
-            entity.Property(e => e.Position).HasColumnName("position");
-            entity.Property(e => e.StatusCode).HasColumnName("status_code");
-            entity.Property(e => e.StatusDescription).HasColumnName("status_description");
-            entity.Property(e => e.TabNumber).HasColumnName("tab_number");
-            entity.Property(e => e.ParentDepId).HasColumnName("parent_dep_id");
-            entity.Property(e => e.ParentDepName).HasColumnName("parent_dep_name");
+                pageRequestControl.Cookie = pageResponse.Cookie;
+            }
 
-            entity.HasOne(d => d.ManagerTabNumberNavigation).WithMany(p => p.InverseManagerTabNumberNavigation)
-                .HasPrincipalKey(p => p.TabNumber)
-                .HasForeignKey(d => d.ManagerTabNumber)
-                .OnDelete(DeleteBehavior.SetNull)
-                .HasConstraintName("employees_manager_tab_number_fkey");
-        });
-
-        OnModelCreatingPartial(modelBuilder);
+            return results;
+        }
     }
-
-    
-    partial void OnModelCreatingPartial(ModelBuilder modelBuilder);
 }
