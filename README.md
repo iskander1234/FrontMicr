@@ -13,7 +13,7 @@ namespace DinDin;
 class Program
 {
     private static IConfiguration Configuration;
-    private static List<Department> _deps = new List<Department>();
+    private static List<Department> _deps = new();
 
     static async Task Main()
     {
@@ -30,16 +30,11 @@ class Program
 
         var deps = (await oneCService.GetDepartments()).Adapt<List<Department>>();
         await serviceProvider.GetRequiredService<DepartmentRepository>().Update(deps);
-        //PopulateParentId(deps);
 
         var employees = (await oneCService.GetEmployees()).Adapt<List<Employee>>();
 
         foreach (var employee in employees)
         {
-            var e = employee;
-            if (e.Name.Contains("Аристом"))
-                e = employee;
-
             foreach (var branch in deps)
             {
                 foreach (var department in branch.InverseParent)
@@ -55,15 +50,8 @@ class Program
                     {
                         if (employee.DepId == division.Id)
                         {
-                            if (branch.Id == "01.001000")
-                            {
-                                employee.ParentDepId = department.Id;
-                                employee.ParentDepName = department.Name;
-                                break;
-                            }
-
-                            employee.ParentDepId = branch.Id;
-                            employee.ParentDepName = branch.Name;
+                            employee.ParentDepId = branch.Id == "01.001000" ? department.Id : branch.Id;
+                            employee.ParentDepName = branch.Id == "01.001000" ? department.Name : branch.Name;
                             break;
                         }
                     }
@@ -72,7 +60,7 @@ class Program
         }
 
         await serviceProvider.GetRequiredService<EmployeeRepository>().Update2(employees);
-        
+
         await SyncLdap(serviceProvider);
     }
 
@@ -92,43 +80,36 @@ class Program
 
     private static ServiceProvider ConfigureServices(IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("BpmCore") ?? throw new Exception("ConnectionString BpmCore was not found");
+        var connectionString = configuration.GetConnectionString("BpmCore")
+            ?? throw new Exception("ConnectionString BpmCore was not found");
 
         return new ServiceCollection()
+            .AddSingleton(configuration) // обязательно!
             .AddDbContext<BpmcoreContext>(options => options.UseNpgsql(connectionString))
             .AddSingleton<OneCService>()
             .AddSingleton<DepartmentRepository>()
             .AddSingleton<EmployeeRepository>()
+            .AddSingleton<LDAPUsersRepository>() // если используешь .UpdateByKey
+            .AddSingleton<LdapEmployeeSyncService>() // важно!
             .BuildServiceProvider();
     }
 
     private static IConfiguration BuildConfiguration()
     {
-        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
-
         return new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
     }
 
-    private static void PopulateParentId(List<Department> departments, string? parentId = null)
+    private static async Task SyncLdap(IServiceProvider provider)
     {
-        foreach (var department in departments)
-        {
-            _deps.Add(department);
-            PopulateParentId(department.InverseParent, department.Id);
-        }
-    }
-    
-    static async Task SyncLdap(IServiceProvider provider)
-    {
-        var context = provider.GetRequiredService<BpmcoreContext>();
-        var repo = new LDAPUsersRepository(context);
-        var service = new LdapEmployeeSyncService();
-        var employees = service.GetLdapEmployees();
+        var ldapService = provider.GetRequiredService<LdapEmployeeSyncService>();
+        var repository = provider.GetRequiredService<LDAPUsersRepository>();
 
-        await repo.UpdateByKey(employees);
-        Console.WriteLine($"✅ Импортировано: {employees.Count} записей в таблицу ldap_employees");
+        var ldapEmployees = ldapService.GetLdapEmployees();
+        await repository.UpdateByKey(ldapEmployees);
+
+        Console.WriteLine($"✅ Импортировано: {ldapEmployees.Count} записей в таблицу ldap_employees");
     }
 }
