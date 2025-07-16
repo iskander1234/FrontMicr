@@ -1,4 +1,67 @@
-public async Task Update2(List<EmployeeEntity> employees)
+using DinDin.Models;
+using EFCore.BulkExtensions;
+using Microsoft.EntityFrameworkCore;
+
+namespace DinDin.Repositories
+{
+    internal class EmployeeRepository(BpmcoreContext context)
+    {
+        public async Task Update(List<Employee> collection)
+        {
+            await context.BulkInsertOrUpdateAsync(collection, options =>
+            {
+                options.BatchSize = 1000;
+                options.IncludeGraph = true;
+                options.SetOutputIdentity = true;
+                //options.UpdateByProperties = ["Login"];
+            });
+        }
+
+        // public async Task Update2(List<Employee> employees)
+        // {
+        //     var bdEmployees = await context.Employees.ToListAsync();
+        //     //var bdDeps = await context.Departments.ToListAsync();
+        //
+        //     bdEmployees.ForEach(e =>
+        //     {
+        //         e.StatusCode = -1;
+        //         e.StatusDescription = "Уволен";
+        //     });
+        //
+        //     foreach (var employee in employees)
+        //     {
+        //         var oldEmployee = bdEmployees.FirstOrDefault(a => a.TabNumber == employee.TabNumber);
+        //
+        //         if (oldEmployee == null)
+        //             context.Employees.Add(employee);
+        //         else
+        //         {
+        //             oldEmployee.Name = employee.Name;
+        //             oldEmployee.Position = employee.Position;
+        //             oldEmployee.Login = employee.Login;
+        //             oldEmployee.StatusCode = employee.StatusCode;
+        //             oldEmployee.StatusDescription = employee.StatusDescription;
+        //             oldEmployee.DepId = employee.DepId;
+        //             oldEmployee.DepName = employee.DepName;
+        //             //oldEmployee.ParentDepId = bdDeps.FirstOrDefault(a => a.Id == employee.DepId)?.ParentId;
+        //             //oldEmployee.ParentDepName = bdDeps.FirstOrDefault(a => a.Id == oldEmployee.ParentDepId)?.Name;
+        //             oldEmployee.ParentDepId = employee.ParentDepId;
+        //             oldEmployee.ParentDepName = employee.ParentDepName;
+        //             oldEmployee.IsFilial = employee.IsFilial;
+        //             oldEmployee.Mail = employee.Mail;
+        //             oldEmployee.LocalPhone = employee.LocalPhone;
+        //             oldEmployee.MobilePhone = employee.MobilePhone;
+        //             oldEmployee.IsManager = employee.IsManager;
+        //             oldEmployee.ManagerTabNumber = employee.ManagerTabNumber;
+        //             oldEmployee.Disabled = employee.Disabled;
+        //             oldEmployee.TabNumber = employee.TabNumber;
+        //         }
+        //     }
+        //
+        //     await context.SaveChangesAsync();
+        // }
+        
+      public async Task Update2(List<Employee> employees)
 {
     try
     {
@@ -63,5 +126,9 @@ public async Task Update2(List<EmployeeEntity> employees)
     {
         Console.WriteLine($"❌ Ошибка при вставке сотрудников: {ex.Message}");
         throw;
+    }
+}
+
+
     }
 }
