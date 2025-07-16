@@ -1,11 +1,28 @@
-static async Task SyncLdap(IServiceProvider provider)
-    {
-        var context = provider.GetRequiredService<BpmcoreContext>();
-        var repo = new LDAPUsersRepository(context);
-        var service = provider.GetRequiredService<LdapEmployeeSyncService>(); // ВАЖНО: теперь получаем из DI
-        var entries = service.GetLdapEmployees();
-        var employees = entries.Select(e => new LDAPEmployee(e)).ToList();
+private static async Task SyncLdap(IServiceProvider provider)
+{
+    var context = provider.GetRequiredService<BpmcoreContext>();
+    var ldapService = provider.GetRequiredService<LdapEmployeeSyncService>();
+    var ldapUsersRepo = provider.GetRequiredService<LDAPUsersRepository>();
 
-        await repo.UpdateByKey(employees);
-        Console.WriteLine($"✅ Импортировано: {employees.Count} записей в таблицу ldap_employees");
-    }
+    var ldapEmployees = ldapService.GetLdapEmployees();
+
+    await ldapUsersRepo.UpdateByKey(ldapEmployees);
+
+    Console.WriteLine($"✅ Импортировано {ldapEmployees.Count} записей в таблицу ldap_employees.");
+}
+
+
+private static ServiceProvider ConfigureServices(IConfiguration configuration)
+{
+    var connectionString = configuration.GetConnectionString("BpmCore") ?? throw new Exception("ConnectionString BpmCore was not found");
+
+    return new ServiceCollection()
+        .AddDbContext<BpmcoreContext>(options => options.UseNpgsql(connectionString))
+        .AddSingleton(configuration) // добавь IConfiguration в DI
+        .AddSingleton<OneCService>()
+        .AddSingleton<DepartmentRepository>()
+        .AddSingleton<EmployeeRepository>()
+        .AddSingleton<LdapEmployeeSyncService>()   // 👈 Добавь эту строку
+        .AddSingleton<LDAPUsersRepository>()       // 👈 И эту
+        .BuildServiceProvider();
+}
