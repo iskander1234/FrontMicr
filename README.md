@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
-using DinDin.Models;
 
-namespace DinDin.Data;
+namespace DinDin.Models;
 
 public partial class BpmcoreContext : DbContext
 {
-    public BpmcoreContext() { }
+    public BpmcoreContext()
+    {
+    }
 
     public BpmcoreContext(DbContextOptions<BpmcoreContext> options)
         : base(options)
@@ -13,21 +14,17 @@ public partial class BpmcoreContext : DbContext
     }
 
     public virtual DbSet<Department> Departments { get; set; }
+
     public virtual DbSet<Employee> Employees { get; set; }
-    public virtual DbSet<LDAPEmployee> LdapEmployees => Set<LDAPEmployee>();
+    public DbSet<LDAPEmployee> LdapEmployees => Set<LDAPEmployee>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-    {
-        if (!optionsBuilder.IsConfigured)
-        {
-            optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=bpmbase7;Username=postgres;Password=postgres")
-                          .EnableSensitiveDataLogging();
-        }
-    }
+        => optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=bpmbase7;Username=postgres;Password=postgres")
+                        .EnableSensitiveDataLogging();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasPostgresExtension("pgcrypto");
+        modelBuilder.HasPostgresExtension("csd", "pgcrypto");
 
         modelBuilder.Entity<Department>(entity =>
         {
@@ -55,38 +52,41 @@ public partial class BpmcoreContext : DbContext
 
             entity.HasIndex(e => e.TabNumber, "employees_tab_number_key").IsUnique();
 
-            entity.Property(e => e.Id).HasColumnName("id");
-            entity.Property(e => e.Name).HasColumnName("name").HasDefaultValue(string.Empty);
-            entity.Property(e => e.Position).HasColumnName("position");
-            entity.Property(e => e.Login).HasColumnName("login");
-            entity.Property(e => e.StatusCode).HasColumnName("status_code");
-            entity.Property(e => e.StatusDescription).HasColumnName("status_description");
+            entity.Property(e => e.Id)
+                .UseIdentityColumn() // если ты хочешь оставить sequence
+                .HasColumnName("id");
+
             entity.Property(e => e.DepId).HasColumnName("dep_id");
             entity.Property(e => e.DepName).HasColumnName("dep_name");
-            entity.Property(e => e.IsFilial).HasColumnName("is_filial");
-            entity.Property(e => e.Mail).HasColumnName("mail");
-            entity.Property(e => e.LocalPhone).HasColumnName("local_phone");
-            entity.Property(e => e.MobilePhone).HasColumnName("mobile_phone");
-            entity.Property(e => e.IsManager).HasColumnName("is_manager");
-            entity.Property(e => e.ManagerTabNumber).HasColumnName("manager_tab_number");
             entity.Property(e => e.Disabled).HasColumnName("disabled");
-            entity.Property(e => e.TabNumber).HasColumnName("tab_number").HasDefaultValue(string.Empty);
+            entity.Property(e => e.IsFilial).HasColumnName("is_filial");
+            entity.Property(e => e.IsManager).HasColumnName("is_manager");
+            entity.Property(e => e.LocalPhone).HasColumnName("local_phone");
+            entity.Property(e => e.Login).HasColumnName("login");
+            entity.Property(e => e.Mail).HasColumnName("mail");
+            entity.Property(e => e.ManagerTabNumber).HasColumnName("manager_tab_number");
+            entity.Property(e => e.MobilePhone).HasColumnName("mobile_phone");
+            entity.Property(e => e.Name).HasColumnName("name");
+            entity.Property(e => e.Position).HasColumnName("position");
+            entity.Property(e => e.StatusCode).HasColumnName("status_code");
+            entity.Property(e => e.StatusDescription).HasColumnName("status_description");
+            entity.Property(e => e.TabNumber).HasColumnName("tab_number");
             entity.Property(e => e.ParentDepId).HasColumnName("parent_dep_id");
             entity.Property(e => e.ParentDepName).HasColumnName("parent_dep_name");
-            entity.Property(e => e.LoginAd).HasColumnName("login_ad");
 
-            entity.HasOne(e => e.ManagerTabNumberNavigation)
-                .WithMany(e => e.InverseManagerTabNumberNavigation)
-                .HasPrincipalKey(e => e.TabNumber)
-                .HasForeignKey(e => e.ManagerTabNumber)
+            entity.HasOne(d => d.ManagerTabNumberNavigation).WithMany(p => p.InverseManagerTabNumberNavigation)
+                .HasPrincipalKey(p => p.TabNumber)
+                .HasForeignKey(d => d.ManagerTabNumber)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("employees_manager_tab_number_fkey");
         });
-
+        
+        // Конфигурация из самого LDAPEmployee
         modelBuilder.ApplyConfiguration(new LDAPEmployee());
 
         OnModelCreatingPartial(modelBuilder);
     }
 
+    
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);
 }
