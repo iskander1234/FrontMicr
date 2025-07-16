@@ -4,14 +4,15 @@ public async Task Update2(List<Employee> employees)
     {
         await using var transaction = await context.Database.BeginTransactionAsync();
 
-        // 1. Удаляем старые записи
-        var allEmployees = await context.Employees.ToListAsync();
-        context.Employees.RemoveRange(allEmployees);
+        // 1. Удаляем всех старых сотрудников
+        var existing = await context.Employees.ToListAsync();
+        context.Employees.RemoveRange(existing);
         await context.SaveChangesAsync();
 
-        // 2. Вставляем сначала тех, у кого нет менеджера
+        // 2. Вставляем сотрудников по волнам
         var insertedTabNumbers = new HashSet<string>();
 
+        // 2.1. Первая волна — без менеджера
         var firstBatch = employees
             .Where(e => string.IsNullOrWhiteSpace(e.ManagerTabNumber))
             .ToList();
@@ -20,10 +21,9 @@ public async Task Update2(List<Employee> employees)
         await context.SaveChangesAsync();
         insertedTabNumbers.UnionWith(firstBatch.Select(e => e.TabNumber));
 
-        // 3. Остальные — только если их менеджер уже вставлен
+        // 2.2. Оставшиеся, у кого есть менеджер
         var remaining = employees
-            .Where(e => !string.IsNullOrWhiteSpace(e.ManagerTabNumber) &&
-                        !insertedTabNumbers.Contains(e.TabNumber))
+            .Where(e => !string.IsNullOrWhiteSpace(e.ManagerTabNumber) && !insertedTabNumbers.Contains(e.TabNumber))
             .ToList();
 
         int iteration = 0;
@@ -40,7 +40,6 @@ public async Task Update2(List<Employee> employees)
 
             context.Employees.AddRange(readyToInsert);
             await context.SaveChangesAsync();
-
             insertedTabNumbers.UnionWith(readyToInsert.Select(e => e.TabNumber));
             remaining = remaining
                 .Where(e => !insertedTabNumbers.Contains(e.TabNumber))
@@ -49,13 +48,13 @@ public async Task Update2(List<Employee> employees)
             iteration++;
         }
 
-        // 4. Лог
+        // 3. Лог не вставленных
         if (remaining.Any())
         {
-            Console.WriteLine("❗ Не удалось вставить следующих сотрудников из-за отсутствующих менеджеров:");
+            Console.WriteLine("❗ Не удалось вставить сотрудников из-за отсутствующих менеджеров:");
             foreach (var emp in remaining)
             {
-                Console.WriteLine($"- {emp.Name}, TabNumber: {emp.TabNumber}, ManagerTabNumber: {emp.ManagerTabNumber}");
+                Console.WriteLine($"- {emp.Name}, Таб. номер: {emp.TabNumber}, Менеджер: {emp.ManagerTabNumber}");
             }
         }
 
