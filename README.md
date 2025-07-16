@@ -1,12 +1,12 @@
-using System.Text.Json.Serialization;
 using System.DirectoryServices.Protocols;
-using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
+using DinDin.Extensions;
 
 namespace DinDin.Models;
 
-[Table("ldap_employees")]
 public class LDAPEmployee
 {
     [Key]
@@ -23,7 +23,7 @@ public class LDAPEmployee
     public string? GivenName { get; set; }
 
     [Column("name")]
-    public string Name { get; set; } = string.Empty;
+    public string Name { get; set; } = "";
 
     [Column("position_name")]
     public string? PositionName { get; set; }
@@ -35,7 +35,7 @@ public class LDAPEmployee
     public string? Department { get; set; }
 
     [Column("login")]
-    public string Login { get; set; } = string.Empty;
+    public string Login { get; set; } = "";
 
     [Column("local_phone")]
     public string? LocalPhone { get; set; }
@@ -70,14 +70,14 @@ public class LDAPEmployee
     [Column("department_id")]
     public int? DepartmentId { get; set; }
 
-    [Column("department_details", TypeName = "jsonb")]
-    public string? DepartmentDetails { get; set; }
+    [Column("department_details")]
+    public JsonDocument? DepartmentDetails { get; set; }
 
     [Column("group_id")]
     public int? GroupId { get; set; }
 
     [Column("is_manager")]
-    public bool IsManager { get; set; } = false;
+    public bool IsManager { get; set; }
 
     public LDAPEmployee() {}
 
@@ -101,33 +101,46 @@ public class LDAPEmployee
         Email = entry.GetString("mail");
         MemberOf = entry.GetStringArray("memberOf");
         MemberOfString = MemberOf == null ? null : string.Join(";", MemberOf);
-        DepartmentDetails = null; // Заполни если нужно
+        IsManager = false;
     }
 }
 
 
+using System.DirectoryServices.Protocols;
+
+namespace DinDin.Extensions;
 
 public static class LdapExtensions
 {
-    public static string? GetString(this SearchResultEntry entry, string attrName)
+    public static string? GetString(this SearchResultEntry entry, string attributeName)
     {
-        return entry.Attributes[attrName]?.Count > 0 ? entry.Attributes[attrName][0]?.ToString() : null;
+        if (entry.Attributes.Contains(attributeName))
+            return entry.Attributes[attributeName]?[0]?.ToString();
+
+        return null;
     }
 
-    public static string[]? GetStringArray(this SearchResultEntry entry, string attrName)
+    public static string[]? GetStringArray(this SearchResultEntry entry, string attributeName)
     {
-        return entry.Attributes[attrName]?.Cast<string>().ToArray();
+        if (entry.Attributes.Contains(attributeName))
+        {
+            return entry.Attributes[attributeName]?
+                .Cast<object>()
+                .Select(x => x.ToString())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToArray();
+        }
+
+        return null;
     }
 
-    public static int GetInt(this SearchResultEntry entry, string attrName)
+    public static int GetInt(this SearchResultEntry entry, string attributeName)
     {
-        return int.TryParse(entry.GetString(attrName), out var val) ? val : 0;
+        var str = entry.GetString(attributeName);
+        return int.TryParse(str, out int val) ? val : 0;
     }
 }
 
-
-
-public virtual DbSet<LDAPEmployee> LdapEmployees => Set<LDAPEmployee>();
 
 
 using DinDin.Models;
@@ -144,67 +157,86 @@ public class LDAPUsersRepository
         _context = context;
     }
 
-    public async Task BulkUpsertAsync(List<LDAPEmployee> employees)
+    public async Task UpdateByKey(List<LDAPEmployee> employees)
     {
-        // Удалим всё и вставим заново
-        _context.LdapEmployees.RemoveRange(_context.LdapEmployees);
-        await _context.SaveChangesAsync();
+        var logins = employees.Select(e => e.Login).ToList();
+        var existing = await _context.LdapEmployees
+            .Where(x => logins.Contains(x.Login))
+            .ToListAsync();
 
-        await _context.LdapEmployees.AddRangeAsync(employees);
+        var toUpdate = employees.Where(e => existing.Any(x => x.Login == e.Login)).ToList();
+        var toInsert = employees.Where(e => existing.All(x => x.Login != e.Login)).ToList();
+
+        foreach (var updated in toUpdate)
+        {
+            var record = existing.First(x => x.Login == updated.Login);
+            _context.Entry(record).CurrentValues.SetValues(updated);
+        }
+
+        _context.LdapEmployees.AddRange(toInsert);
         await _context.SaveChangesAsync();
     }
 }
 
 
-
-
-
-
-public static class LdapSyncRunner
-{
-    public static async Task SyncAsync(IServiceProvider serviceProvider)
-    {
-        var config = serviceProvider.GetRequiredService<IConfiguration>();
-        var context = serviceProvider.GetRequiredService<BpmcoreContext>();
-
-        var ldapService = new LDAPServiceImpl(config); // см. ниже
-        var entries = ldapService.LdapPagedSearch();
-
-        var employees = entries.Select(e => new LDAPEmployee(e)).ToList();
-
-        var repository = new LDAPUsersRepository(context);
-        await repository.BulkUpsertAsync(employees);
-
-        Console.WriteLine($"✅ Загружено {employees.Count} записей из LDAP.");
-    }
-}
-
+using System.DirectoryServices.Protocols;
+using System.Net;
+using DinDin.Models;
 
 namespace DinDin.Services;
 
-public class LDAPServiceImpl : LDAPService
+public class LdapEmployeeSyncService
 {
-    public LDAPServiceImpl(IConfiguration config) : base(config) { }
-}
+    private readonly string _host = "ldap://yourhost";
+    private readonly int _port = 389;
+    private readonly string _username = "cn=admin,dc=your,dc=org";
+    private readonly string _password = "yourpassword";
+    private readonly string _baseDn = "dc=your,dc=org";
 
-
-
-
-public class Program
-{
-    public static async Task Main(string[] args)
+    public List<LDAPEmployee> GetLdapEmployees()
     {
-        var config = new ConfigurationBuilder()
-            .AddJsonFile("appsettings.json")
-            .Build();
+        var result = new List<LDAPEmployee>();
 
-        var services = new ServiceCollection();
-        services.AddSingleton<IConfiguration>(config);
-        services.AddDbContext<BpmcoreContext>();
-        services.AddScoped<LDAPUsersRepository>();
+        using var connection = new LdapConnection(new LdapDirectoryIdentifier(_host, _port));
+        connection.AuthType = AuthType.Basic;
+        connection.Bind(new NetworkCredential(_username, _password));
 
-        var serviceProvider = services.BuildServiceProvider();
+        var pageRequest = new PageResultRequestControl(1000);
+        var searchRequest = new SearchRequest(_baseDn, "(objectClass=person)", SearchScope.Subtree);
+        searchRequest.Controls.Add(pageRequest);
 
-        await LdapSyncRunner.SyncAsync(serviceProvider);
+        while (true)
+        {
+            var response = (SearchResponse)connection.SendRequest(searchRequest);
+            foreach (SearchResultEntry entry in response.Entries)
+            {
+                result.Add(new LDAPEmployee(entry));
+            }
+
+            var prc = response.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
+            if (prc == null || prc.Cookie.Length == 0) break;
+
+            pageRequest.Cookie = prc.Cookie;
+        }
+
+        return result;
     }
 }
+
+
+using DinDin.Repositories;
+using DinDin.Services;
+
+static async Task SyncLdap(IServiceProvider provider)
+{
+    var context = provider.GetRequiredService<BpmcoreContext>();
+    var repo = new LDAPUsersRepository(context);
+    var service = new LdapEmployeeSyncService();
+    var employees = service.GetLdapEmployees();
+
+    await repo.UpdateByKey(employees);
+    Console.WriteLine($"✅ Импортировано: {employees.Count} записей в таблицу ldap_employees");
+}
+
+
+await SyncLdap(serviceProvider);
