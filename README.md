@@ -8,13 +8,12 @@ System.ArgumentException: GenericArguments[0], 'BpmBaseApi.Domain.Entities.Refer
    at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.TryCreateOpenGeneric(ServiceDescriptor descriptor, ServiceIdentifier serviceIdentifier, CallSiteChain callSiteChain, Int32 slot, Boolean throwOnConstraintViolation)
    at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.TryCreateOpenGeneric(ServiceIdentifier serviceIdentifier, CallSiteChain callSiteChain)
    at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.CreateCallSite(ServiceIdentifier serviceIdentifier, CallSiteChain callSiteChain)
-   at Microsoft.Extensions.DependencyInjection.ServiceLookup.CallSiteFactory.GetCallSite(ServiceIdentifier serviceIdentifier, CallSiteChain callSiteChain)
    at Microsoft.Extensions.DependencyInjection.ServiceProvider.CreateServiceAccessor(ServiceIdentifier serviceIdentifier)
    at Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService(IServiceProvider provider, Type serviceType)
    at Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService[T](IServiceProvider provider)
    at BpmBaseApi.Persistence.UnitOfWork.get_DepartmentIntRepository() in C:\BPM\bpm\bpmbaseapi\BpmBaseApi.Persistence\UnitOfWork.cs:line 93
-   at BpmBaseApi.Application.QueryHandlers.Common.GetDepartmentWorkTimeQueryHandler.Handle(GetDepartmentWorkTimeQuery query, CancellationToken cancellationToken) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi.Application\QueryHandlers\Common\GetDepartmentWorkTimeQueryHandler.cs:line 59
-   at BpmBaseApi.Controllers.V1.WorkTimeController.GetByDepartment(GetDepartmentWorkTimeQuery query, CancellationToken cancellationToken) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Controllers\V1\WorkTimeController.cs:line 110
+   at BpmBaseApi.Application.QueryHandlers.Common.GetEmployeeByLoginQueryHandler.Handle(GetEmployeeByLoginQuery query, CancellationToken cancellationToken) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi.Application\QueryHandlers\Common\GetEmployeeByLoginQueryHandler.cs:line 43
+   at BpmBaseApi.Controllers.V1.EmployeeController.GetEmployee(String login) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Controllers\V1\EmployeeController.cs:line 43
    at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.TaskOfIActionResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
    at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Logged|12_1(ControllerActionInvoker invoker)
    at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
@@ -42,149 +41,71 @@ Host: localhost:5143
 User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36
 Accept-Encoding: gzip, deflate, br, zstd
 Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7
-Content-Type: application/json; x-api-version=1.0
-Origin: http://localhost:5143
 Referer: http://localhost:5143/swagger/index.html
-Content-Length: 112
 sec-ch-ua-platform: "Windows"
 sec-ch-ua: "Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"
 sec-ch-ua-mobile: ?0
 Sec-Fetch-Site: same-origin
 Sec-Fetch-Mode: cors
 Sec-Fetch-Dest: empty
-Correlation-Id: 052c76f5-69d1-43ca-a72f-30be472d2cb8
+Correlation-Id: 59138a3e-29dc-4fed-9a16-9ac233210672
 
-using BpmBaseApi.Domain.Entities.Event.Employees;
-using BpmBaseApi.Domain.SeedWork;
 
-namespace BpmBaseApi.Domain.Entities.Employees;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Dtos.Common;
+using BpmBaseApi.Shared.Queries.Common;
+using MediatR;
+using Microsoft.AspNetCore.Mvc;
 
-/// <summary>
-/// Сотрудник
-/// </summary>
-public class EmployeeEntity : BaseIntEntity
+namespace BpmBaseApi.Controllers.V1;
+
+[ApiController]
+[Route("api/[controller]")]
+public class EmployeeController : ControllerBase
 {
-    public string Name { get; set; }
-    public string? Position { get; set; }
-    public string? Login { get; set; }
-    public string? Mail { get; set; }
-    public string? TabNumber { get; set; }
-    public string? LocalPhone { get; set; }
-    public string? MobilePhone { get; set; }
-    public string? DepId { get; set; }
-    public string? DepName { get; set; }
-    public string? ParentDepId { get; set; }
-    public string? ParentDepName { get; set; }
-    public string? LoginAd { get; set; }
-    public string? ManagerTabNumber { get; set; }
-    public int? StatusCode { get; set; }
-    public string? StatusDescription { get; set; }
+    private readonly IMediator _mediator;
 
-    public bool Disabled { get; set; }
-    public bool IsManager { get; set; }
-    public bool IsFilial { get; set; }
-
-    public virtual EmployeeEntity? ManagerTabNumberNavigation { get; set; }
-    public virtual ICollection<EmployeeEntity> InverseManagerTabNumberNavigation { get; set; } = new List<EmployeeEntity>();
-
-    public void Apply(EmployeeCreatedEvent @event)
+    public EmployeeController(IMediator mediator)
     {
-        Name = @event.Name;
-        Position = @event.Position;
-        Login = @event.Login;
-        LoginAd = @event.LoginAd;
-        StatusCode = @event.StatusCode;
-        StatusDescription = @event.StatusDescription;
-        DepId = @event.DepId;
-        DepName = @event.DepName;
-        IsFilial = @event.IsFilial;
-        Mail = @event.Mail;
-        LocalPhone = @event.LocalPhone;
-        MobilePhone = @event.MobilePhone;
-        IsManager = @event.IsManager;
-        ManagerTabNumber = @event.ManagerTabNumber;
-        Disabled = @event.Disabled;
-        TabNumber = @event.TabNumber;
-        ParentDepId = @event.ParentDepId;
-        ParentDepName = @event.ParentDepName;
+        _mediator = mediator;
     }
+
+    /// <summary>
+    /// Получение информации о сотруднике по логину (login или loginAd)
+    /// </summary>
+    /// <param name="login">Логин или LoginAd сотрудника</param>
+    /// <returns>Информация о сотруднике</returns>
+    /// <response code="200">Успешно найден</response>
+    /// <response code="400">Неверный запрос</response>
+    /// <response code="404">Сотрудник не найден</response>
+    [HttpGet]
+    [ProducesResponseType(typeof(BaseResponseDto<EmployeeFullInfoDto>), 200)]
+    [ProducesResponseType(typeof(BaseResponseDto<EmployeeFullInfoDto>), 400)]
+    [ProducesResponseType(typeof(BaseResponseDto<EmployeeFullInfoDto>), 404)]
+    public async Task<IActionResult> GetEmployee([FromQuery] string login)
+    {
+        if (string.IsNullOrWhiteSpace(login))
+        {
+            return BadRequest(new BaseResponseDto<EmployeeFullInfoDto>
+            {
+                Message = "Поле login обязательно",
+                ErrorCode = 400
+            });
+        }
+
+        var result = await _mediator.Send(new GetEmployeeByLoginQuery { Login = login });
+
+        if (result.ErrorCode == 404)
+            return NotFound(result);
+
+        if (result.ErrorCode == 400)
+            return BadRequest(result);
+
+        return Ok(result);
+    }  
 
 }
 
-
-using BpmBaseApi.Domain.Entities.Event.Reference;
-using BpmBaseApi.Domain.SeedWork;
-
-namespace BpmBaseApi.Domain.Entities.Reference;
-
-/// <summary>
-/// Департамент / отдел
-/// </summary>
-public class DepartmentEntity 
-{
-    public string Id { get; set; } = null!;
-    public string Name { get; set; }
-    public string? ManagerId { get; set; }
-    public int Actual { get; set; }
-
-    public string? ParentId { get; set; }
-
-    public virtual DepartmentEntity? Parent { get; set; }
-    public virtual ICollection<DepartmentEntity> InverseParent { get; set; } = new List<DepartmentEntity>();
-
-    public virtual ICollection<DepartmentCreatedEvent> CreatedEvents { get; set; } =
-        new List<DepartmentCreatedEvent>();
-
-    public void Apply(DepartmentCreatedEvent @event)
-    {
-        Id = @event.Id;
-        ParentId = @event.ParentId;
-        Name = @event.Name;
-        ManagerId = @event.ManagerId;
-        Actual = @event.Actual;
-    }
-}
-
-using BpmBaseApi.Domain.Entities.AccessControl;
-using BpmBaseApi.Domain.Entities.Common;
-using BpmBaseApi.Domain.Entities.Employees;
-using BpmBaseApi.Domain.Entities.Process;
-using BpmBaseApi.Domain.Entities.Reference;
-
-namespace BpmBaseApi.Persistence.Interfaces
-{
-    public interface IUnitOfWork
-    {
-        void Commit();
-        // public ApplicationDbContext DbContext { get; }
-        Task CommitAsync(CancellationToken cancellationToken);
-        IJournaledGenericRepository<UserEntity> UserRepository { get; }
-        IJournaledGenericRepository<RoleEntity> RoleRepository { get; }
-        IJournaledGenericRepository<GroupEntity> GroupRepository { get; }
-        IJournaledGenericRepository<UserGroupEntity> UserGroupRepository { get; }
-        IJournaledGenericRepository<UserRoleEntity> UserRoleRepository { get; }
-        IJournaledGenericRepository<GroupRoleEntity> GroupRoleRepository { get; }
-        IJournaledGenericRepository<BlockEntity> BlockRepository { get; }
-        IJournaledGenericRepository<ProcessDataEntity> ProcessDataRepository { get; }
-        IJournaledGenericRepository<ProcessEntity> ProcessRepository { get; }
-        IJournaledGenericRepository<ProcessTaskEntity> ProcessTaskRepository { get; }
-        IJournaledGenericRepository<ProcessTaskHistoryEntity> ProcessTaskHistoryRepository { get; }
-        //IJournaledGenericRepository<RequestSequenceEntity> RequestSequenceRepository { get; }
-        IJournaledGenericRepository<RefProcessCategoryEntity> RefProcessCategoryRepository { get; }
-        IJournaledGenericRepository<RefProcessEntity> RefProcessRepository { get; }
-        IJournaledGenericRepository<RefInformationSystemEntity> RefInformationSystemRepository { get; }
-        IJournaledGenericRepository<WorkSessionEntity> WorkSessionRepository { get; }
-        IJournaledGenericRepository<WorkSessionLogEntity> WorkSessionLogRepository { get; }
-        IJournaledGenericRepository<RequestNumberCounterEntity> RequestNumberCounterRepository { get; }
-        IJournaledGenericRepository<MenuItemEntity> MenuItemRepository { get; }
-        IJournaledGenericRepository<RoleMenuEntity> RoleMenuRepository { get; }
-        IJournaledGenericRepository<RefBusinessObjectEntity> RefBusinessObjectRepository { get; }
-        IJournaledGenericRepository<RefBusinessObjectAttributeEntity> RefBusinessObjectAttributeRepository { get; }
-        IGenericRepositoryInt<EmployeeEntity> EmployeeIntRepository { get; }
-        IGenericRepositoryInt<DepartmentEntity> DepartmentIntRepository { get; }
-
-    }
-}
 
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Shared.Dtos;
@@ -263,125 +184,101 @@ public class
     }
 }
 
+using BpmBaseApi.Domain.Entities.Event.Employees;
+using BpmBaseApi.Domain.SeedWork;
 
-using System.Globalization;
-using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Queries.Common;
-using BpmBaseApi.Shared.Responses.Common;
-using MediatR;
+namespace BpmBaseApi.Domain.Entities.Employees;
 
-namespace BpmBaseApi.Application.QueryHandlers.Common;
-
-public class GetDepartmentWorkTimeQueryHandler : IRequestHandler<GetDepartmentWorkTimeQuery, BaseResponseDto<List<DepartmentWorkTimeResponse>>>
+/// <summary>
+/// Сотрудник
+/// </summary>
+public class EmployeeEntity : BaseIntEntity
 {
-    private readonly IUnitOfWork _unitOfWork;
+    public string Name { get; set; }
+    public string? Position { get; set; }
+    public string? Login { get; set; }
+    public string? Mail { get; set; }
+    public string? TabNumber { get; set; }
+    public string? LocalPhone { get; set; }
+    public string? MobilePhone { get; set; }
+    public string? DepId { get; set; }
+    public string? DepName { get; set; }
+    public string? ParentDepId { get; set; }
+    public string? ParentDepName { get; set; }
+    public string? LoginAd { get; set; }
+    public string? ManagerTabNumber { get; set; }
+    public int? StatusCode { get; set; }
+    public string? StatusDescription { get; set; }
 
-    public GetDepartmentWorkTimeQueryHandler(IUnitOfWork unitOfWork)
+    public bool Disabled { get; set; }
+    public bool IsManager { get; set; }
+    public bool IsFilial { get; set; }
+
+    public virtual EmployeeEntity? ManagerTabNumberNavigation { get; set; }
+    public virtual ICollection<EmployeeEntity> InverseManagerTabNumberNavigation { get; set; } = new List<EmployeeEntity>();
+
+    public void Apply(EmployeeCreatedEvent @event)
     {
-        _unitOfWork = unitOfWork;
+        Name = @event.Name;
+        Position = @event.Position;
+        Login = @event.Login;
+        LoginAd = @event.LoginAd;
+        StatusCode = @event.StatusCode;
+        StatusDescription = @event.StatusDescription;
+        DepId = @event.DepId;
+        DepName = @event.DepName;
+        IsFilial = @event.IsFilial;
+        Mail = @event.Mail;
+        LocalPhone = @event.LocalPhone;
+        MobilePhone = @event.MobilePhone;
+        IsManager = @event.IsManager;
+        ManagerTabNumber = @event.ManagerTabNumber;
+        Disabled = @event.Disabled;
+        TabNumber = @event.TabNumber;
+        ParentDepId = @event.ParentDepId;
+        ParentDepName = @event.ParentDepName;
     }
 
-    public async Task<BaseResponseDto<List<DepartmentWorkTimeResponse>>> Handle(GetDepartmentWorkTimeQuery query, CancellationToken cancellationToken)
+}
+
+using BpmBaseApi.Domain.Entities.AccessControl;
+using BpmBaseApi.Domain.Entities.Common;
+using BpmBaseApi.Domain.Entities.Employees;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Domain.Entities.Reference;
+
+namespace BpmBaseApi.Persistence.Interfaces
+{
+    public interface IUnitOfWork
     {
-        Console.WriteLine($"[Debug] DepartmetId {query.DepartmentId}");
-        Console.WriteLine($"[Debug] Periodtype {query.PeriodType}, Date {query.Date}, Year {query.Year}, Month {query.Month}");
+        void Commit();
+        // public ApplicationDbContext DbContext { get; }
+        Task CommitAsync(CancellationToken cancellationToken);
+        IJournaledGenericRepository<UserEntity> UserRepository { get; }
+        IJournaledGenericRepository<RoleEntity> RoleRepository { get; }
+        IJournaledGenericRepository<GroupEntity> GroupRepository { get; }
+        IJournaledGenericRepository<UserGroupEntity> UserGroupRepository { get; }
+        IJournaledGenericRepository<UserRoleEntity> UserRoleRepository { get; }
+        IJournaledGenericRepository<GroupRoleEntity> GroupRoleRepository { get; }
+        IJournaledGenericRepository<BlockEntity> BlockRepository { get; }
+        IJournaledGenericRepository<ProcessDataEntity> ProcessDataRepository { get; }
+        IJournaledGenericRepository<ProcessEntity> ProcessRepository { get; }
+        IJournaledGenericRepository<ProcessTaskEntity> ProcessTaskRepository { get; }
+        IJournaledGenericRepository<ProcessTaskHistoryEntity> ProcessTaskHistoryRepository { get; }
+        //IJournaledGenericRepository<RequestSequenceEntity> RequestSequenceRepository { get; }
+        IJournaledGenericRepository<RefProcessCategoryEntity> RefProcessCategoryRepository { get; }
+        IJournaledGenericRepository<RefProcessEntity> RefProcessRepository { get; }
+        IJournaledGenericRepository<RefInformationSystemEntity> RefInformationSystemRepository { get; }
+        IJournaledGenericRepository<WorkSessionEntity> WorkSessionRepository { get; }
+        IJournaledGenericRepository<WorkSessionLogEntity> WorkSessionLogRepository { get; }
+        IJournaledGenericRepository<RequestNumberCounterEntity> RequestNumberCounterRepository { get; }
+        IJournaledGenericRepository<MenuItemEntity> MenuItemRepository { get; }
+        IJournaledGenericRepository<RoleMenuEntity> RoleMenuRepository { get; }
+        IJournaledGenericRepository<RefBusinessObjectEntity> RefBusinessObjectRepository { get; }
+        IJournaledGenericRepository<RefBusinessObjectAttributeEntity> RefBusinessObjectAttributeRepository { get; }
+        IGenericRepositoryInt<EmployeeEntity> EmployeeIntRepository { get; }
+        IGenericRepositoryInt<DepartmentEntity> DepartmentIntRepository { get; }
 
-        DateTime startDate;
-        DateTime endDate;
-
-        if (query.PeriodType == PeriodType.Day && query.Date.HasValue)
-        {
-            startDate = query.Date.Value.ToDateTime(TimeOnly.MinValue);
-            endDate = query.Date.Value.ToDateTime(TimeOnly.MaxValue);
-        }
-        else
-        {
-            startDate = new DateTime(query.Year, query.Month, 1);
-            endDate = startDate.AddMonths(1).AddDays(-1);
-        }
-
-        Console.WriteLine($"[Debug] StartDate {startDate}, EndDate {endDate}");
-
-        var sessions = await _unitOfWork.WorkSessionRepository.GetByFilterListAsync(
-            cancellationToken,
-            s => s.ParentDepId == query.DepartmentId &&
-                 s.StartTime >= startDate &&
-                 s.StartTime <= endDate);
-
-        Console.WriteLine($"[Debug] Сессий найденно {sessions.Count}");
-
-        foreach (var s in sessions.Take(5))
-        {
-            Console.WriteLine($"[Debug] Session {s.UserCode}, {s.UserName}, {s.StartTime} - {s.EndTime}");
-        }
-
-        var userCodes = sessions.Select(s => s.UserCode).Distinct().ToList();
-
-        var employees = await _unitOfWork.EmployeeIntRepository.GetByFilterListAsync(
-            cancellationToken,
-            e => userCodes.Contains(e.LoginAd));
-
-        var departments = await _unitOfWork.DepartmentIntRepository.GetByFilterListAsync(cancellationToken);
-
-        var employeeMap = employees.ToDictionary(
-            e => e.LoginAd,
-            e =>
-            {
-                var dep = departments.FirstOrDefault(d => d.Id.Trim() == (e.DepId?.Trim() ?? ""));
-                var parentName = departments.FirstOrDefault(d => d.Id.Trim() == (dep?.ParentId?.Trim() ?? ""))?.Name ?? "";
-                return (
-                    e.Position ?? "",
-                    e.DepName ?? "",
-                    parentName
-                );
-            });
-
-        Console.WriteLine($"[Debug] Employee map count {employeeMap.Count}");
-        foreach (var emp in employeeMap.Take(5))
-        {
-            Console.WriteLine($"[Debug] {emp.Key} => {emp.Value.Item1}, {emp.Value.Item2}, {emp.Value.Item3}");
-        }
-
-        var result = sessions
-            .OrderBy(s =>
-            {
-                if (employeeMap.TryGetValue(s.UserCode, out var info))
-                    return info.Item2;
-                return "";
-            })
-            .ThenBy(s => s.UserName)
-            .ThenBy(s => s.StartTime)
-            .Select(s =>
-            {
-                var info = employeeMap.TryGetValue(s.UserCode, out var data)
-                    ? data
-                    : ("", "", "");
-
-                return new DepartmentWorkTimeResponse
-                {
-                    UserCode = s.UserCode,
-                    FullName = s.UserName,
-                    Position = info.Item1,
-                    DepartmentName = info.Item2,
-                    ParentDepartmentName = info.Item3,
-                    Date = s.StartTime.ToString("dd.MM.yyyy"),
-                    StartTime = s.StartTime.ToString("HH:mm"),
-                    EndTime = s.EndTime?.ToString("HH:mm"),
-                    TotalTime = FormatTimeSpan(s.TotalTime),
-                    WeekDay = CultureInfo.GetCultureInfo("ru-RU").DateTimeFormat.GetDayName(s.StartTime.DayOfWeek),
-                    Status = s.TotalTime.HasValue && s.TotalTime.Value >= TimeSpan.FromHours(9) ? "OK" : ""
-                };
-            })
-            .ToList();
-
-        return new BaseResponseDto<List<DepartmentWorkTimeResponse>> { Data = result };
-    }
-
-    private string FormatTimeSpan(TimeSpan? time)
-    {
-        if (!time.HasValue) return "";
-        return $"{(int)time.Value.TotalHours:D2}:{time.Value.Minutes:D2}";
     }
 }
 
