@@ -1,3 +1,42 @@
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (5ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE INDEX "IX_DepartmentCreatedEvent_DepartmentEntityId" ON "DepartmentCreatedEvent" ("DepartmentEntityId");
+fail: Microsoft.EntityFrameworkCore.Database.Command[20102]
+      Failed executing DbCommand (57ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE INDEX "IX_RefBusinessObjectAttributes_BusinessObjectId" ON "RefBusinessObjectAttributes" ("BusinessObjectId");
+Unhandled exception. Npgsql.PostgresException (0x80004005): 42P07: отношение "IX_RefBusinessObjectAttributes_BusinessObjectId" уже существует
+   at Npgsql.Internal.NpgsqlConnector.ReadMessageLong(Boolean async, DataRowLoadingMode dataRowLoadingMode, Boolean readingNotifications, Boolean isReadingPrependedMessage)
+   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
+   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlDataReader.NextResult()
+   at Npgsql.NpgsqlCommand.ExecuteReader(Boolean async, CommandBehavior behavior, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteReader(Boolean async, CommandBehavior behavior, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteNonQuery(Boolean async, CancellationToken cancellationToken)
+   at Npgsql.NpgsqlCommand.ExecuteNonQuery()
+   at Microsoft.EntityFrameworkCore.Storage.RelationalCommand.ExecuteNonQuery(RelationalCommandParameterObject parameterObject)
+   at Microsoft.EntityFrameworkCore.Migrations.MigrationCommand.ExecuteNonQuery(IRelationalConnection connection, IReadOnlyDictionary`2 parameterValues)
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.MigrationCommandExecutor.Execute(IReadOnlyList`1 migrationCommands, IRelationalConnection connection, MigrationExecutionState executionState, Boolean beginTransaction, Boolean commitTransaction, Nullable`1 isolationLevel)
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.MigrationCommandExecutor.<>c.<ExecuteNonQuery>b__3_1(DbContext _, ValueTuple`6 s)
+   at Npgsql.EntityFrameworkCore.PostgreSQL.Storage.Internal.NpgsqlExecutionStrategy.Execute[TState,TResult](TState state, Func`3 operation, Func`3 verifySucceeded)
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.MigrationCommandExecutor.ExecuteNonQuery(IReadOnlyList`1 migrationCommands, IRelationalConnection connection, MigrationExecutionState executionState, Boolean commitTransaction, Nullable`1 isolationLevel)
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.Migrator.MigrateImplementation(DbContext context, String targetMigration, MigrationExecutionState state, Boolean useTransaction)    
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.Migrator.<>c.<Migrate>b__20_1(DbContext c, ValueTuple`4 s)
+   at Npgsql.EntityFrameworkCore.PostgreSQL.Storage.Internal.NpgsqlExecutionStrategy.Execute[TState,TResult](TState state, Func`3 operation, Func`3 verifySucceeded)
+   at Microsoft.EntityFrameworkCore.Migrations.Internal.Migrator.Migrate(String targetMigration)
+   at Npgsql.EntityFrameworkCore.PostgreSQL.Migrations.Internal.NpgsqlMigrator.Migrate(String targetMigration)
+   at Microsoft.EntityFrameworkCore.RelationalDatabaseFacadeExtensions.Migrate(DatabaseFacade databaseFacade)
+   at Program.<Main>$(String[] args) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Program.cs:line 83
+  Exception data:
+    Severity: ОШИБКА
+    SqlState: 42P07
+    MessageText: отношение "IX_RefBusinessObjectAttributes_BusinessObjectId" уже существует
+    File: index.c
+    Line: 900
+    Routine: index_create
+
+
+
 using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -164,48 +203,48 @@ namespace BpmBaseApi.Persistence.Migrations
                         principalColumn: "id");
                 });
 
-            migrationBuilder.CreateTable(
-                name: "RefBusinessObjects",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    ResponsibleUserCode = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
-                    ResponsibleUserName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    Created = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
-                    Updated = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
-                    CreateUserId = table.Column<string>(type: "text", nullable: false),
-                    LastUserId = table.Column<string>(type: "text", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_RefBusinessObjects", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "RefBusinessObjectAttributes",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
-                    Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
-                    BusinessObjectId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Created = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
-                    Updated = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
-                    CreateUserId = table.Column<string>(type: "text", nullable: false),
-                    LastUserId = table.Column<string>(type: "text", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_RefBusinessObjectAttributes", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_RefBusinessObjectAttributes_RefBusinessObjects_BusinessObje~",
-                        column: x => x.BusinessObjectId,
-                        principalTable: "RefBusinessObjects",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                });
+            // migrationBuilder.CreateTable(
+            //     name: "RefBusinessObjects",
+            //     columns: table => new
+            //     {
+            //         Id = table.Column<Guid>(type: "uuid", nullable: false),
+            //         Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+            //         Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+            //         ResponsibleUserCode = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+            //         ResponsibleUserName = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+            //         Created = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+            //         Updated = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+            //         CreateUserId = table.Column<string>(type: "text", nullable: false),
+            //         LastUserId = table.Column<string>(type: "text", nullable: false)
+            //     },
+            //     constraints: table =>
+            //     {
+            //         table.PrimaryKey("PK_RefBusinessObjects", x => x.Id);
+            //     });
+            //
+            // migrationBuilder.CreateTable(
+            //     name: "RefBusinessObjectAttributes",
+            //     columns: table => new
+            //     {
+            //         Id = table.Column<Guid>(type: "uuid", nullable: false),
+            //         Name = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: false),
+            //         Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+            //         BusinessObjectId = table.Column<Guid>(type: "uuid", nullable: false),
+            //         Created = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+            //         Updated = table.Column<DateTime>(type: "timestamp without time zone", nullable: false),
+            //         CreateUserId = table.Column<string>(type: "text", nullable: false),
+            //         LastUserId = table.Column<string>(type: "text", nullable: false)
+            //     },
+            //     constraints: table =>
+            //     {
+            //         table.PrimaryKey("PK_RefBusinessObjectAttributes", x => x.Id);
+            //         table.ForeignKey(
+            //             name: "FK_RefBusinessObjectAttributes_RefBusinessObjects_BusinessObje~",
+            //             column: x => x.BusinessObjectId,
+            //             principalTable: "RefBusinessObjects",
+            //             principalColumn: "Id",
+            //             onDelete: ReferentialAction.Cascade);
+            //     });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Employees_manager_tab_number",
@@ -411,3 +450,4 @@ namespace BpmBaseApi.Persistence.Migrations
         }
     }
 }
+
