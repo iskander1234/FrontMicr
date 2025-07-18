@@ -1,85 +1,217 @@
-using System.Linq.Expressions;
-
-namespace BpmBaseApi.Persistence.Interfaces;
-
-public interface IGenericRepositoryString<TEntity>
-{
-    ValueTask<TEntity?> GetByFilterAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
-
-    ValueTask<List<TEntity>> GetByFilterListAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
-
-    Task<int> CountAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
-
-    ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, string id);
-
-    Task DeleteByIdAsync(string id, CancellationToken cancellationToken);
-}
-
-
-using System.Linq.Expressions;
+﻿using System.Globalization;
 using BpmBaseApi.Persistence.Interfaces;
-using Microsoft.EntityFrameworkCore;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Common;
+using BpmBaseApi.Shared.Responses.Common;
+using MediatR;
 
-namespace BpmBaseApi.Persistence.Repositories;
+namespace BpmBaseApi.Application.QueryHandlers.Common;
 
-public class GenericRepositoryString<TEntity> : IGenericRepositoryString<TEntity>
-    where TEntity : class
+public class GetDepartmentWorkTimeQueryHandler : IRequestHandler<GetDepartmentWorkTimeQuery,
+    BaseResponseDto<List<DepartmentWorkTimeResponse>>>
 {
-    private readonly ApplicationDbContext _context;
-    private readonly DbSet<TEntity> _dbSet;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly IBpmCoreRepository _bpmCoreRepository;
 
-    public GenericRepositoryString(ApplicationDbContext context)
+    public GetDepartmentWorkTimeQueryHandler(IUnitOfWork unitOfWork, IBpmCoreRepository bpmCoreRepository)
     {
-        _context = context;
-        _dbSet = _context.Set<TEntity>();
+        _unitOfWork = unitOfWork;
+        _bpmCoreRepository = bpmCoreRepository;
     }
 
-    public async ValueTask<TEntity?> GetByFilterAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null)
+    public async Task<BaseResponseDto<List<DepartmentWorkTimeResponse>>> Handle(
+        GetDepartmentWorkTimeQuery query,
+        CancellationToken cancellationToken)
     {
-        return await _dbSet.FirstOrDefaultAsync(filter, cancellationToken);
-    }
-
-    public async ValueTask<List<TEntity>> GetByFilterListAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null)
-    {
-        var query = _dbSet.AsQueryable();
-        if (filter != null) query = query.Where(filter);
-        return await query.ToListAsync(cancellationToken);
-    }
-
-    public async Task<int> CountAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null)
-    {
-        return await (filter != null ? _dbSet.CountAsync(filter, cancellationToken) : _dbSet.CountAsync(cancellationToken));
-    }
-
-    public async ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, string id)
-    {
-        return await _dbSet.FindAsync(new object?[] { id }, cancellationToken: cancellationToken);
-    }
-
-    public async Task DeleteByIdAsync(string id, CancellationToken cancellationToken)
-    {
-        var entity = await GetByIdAsync(cancellationToken, id);
-        if (entity != null)
+        // 1. Вычисление периода фильтрации
+        DateTime startDate;
+        DateTime endDate;
+        
+        if (query.PeriodType == PeriodType.Day && query.Date.HasValue)
         {
-            _dbSet.Remove(entity);
-            await _context.SaveChangesAsync(cancellationToken);
+            // Фильтрация по конкретной дате
+            startDate = query.Date.Value.ToDateTime(TimeOnly.MinValue);
+            endDate = query.Date.Value.ToDateTime(TimeOnly.MaxValue);
         }
+        else
+        {
+            // Фильтрация по месяцу на основе year/month
+            // Используется и когда PeriodType == Month, и когда он не указан
+            startDate = new DateTime(query.Year, query.Month, 1);
+            endDate = startDate.AddMonths(1).AddDays(-1);
+        }
+
+        // 2. Получение сессий за указанный период
+        var sessions = await _unitOfWork.WorkSessionRepository.GetByFilterListAsync(
+            cancellationToken,
+            s => s.ParentDepId == query.DepartmentId &&
+                 s.StartTime >= startDate &&
+                 s.StartTime <= endDate);
+
+        // 3. Получение данных из bpmcore по UserCode
+        var employeeInfoMap = await _bpmCoreRepository.GetEmployeeInfoMapAsync(
+            sessions.Select(s => s.UserCode).Distinct().ToList(),
+            cancellationToken);
+
+        // 4. Формирование финального ответа
+        var result = sessions
+            .OrderBy(s => employeeInfoMap.TryGetValue(s.UserCode, out var info) ? info.DepartmentName : "")
+            .ThenBy(s => s.UserName)
+            .ThenBy(s => s.StartTime)
+            .Select(s =>
+            {
+                var info = employeeInfoMap.TryGetValue(s.UserCode, out var data)
+                    ? data
+                    : ((string Position, string DepartmentName, string ParentDepartmentName)?)null;
+
+                return new DepartmentWorkTimeResponse
+                {
+                    UserCode = s.UserCode,
+                    FullName = s.UserName,
+                    Position = info?.Position ?? "",
+                    DepartmentName = info?.DepartmentName ?? "",
+                    ParentDepartmentName = info?.ParentDepartmentName ?? "",
+                    Date = s.StartTime.ToString("dd.MM.yyyy"),
+                    StartTime = s.StartTime.ToString("HH:mm"),
+                    EndTime = s.EndTime?.ToString("HH:mm") ?? "",
+                    TotalTime = FormatTimeSpan(s.TotalTime),
+                    WeekDay = CultureInfo.GetCultureInfo("ru-RU").DateTimeFormat.GetDayName(s.StartTime.DayOfWeek),
+                    Status = s.TotalTime.HasValue && s.TotalTime.Value >= TimeSpan.FromHours(9) ? "ОК" : ""
+                };
+            })
+            .ToList();
+
+        return new BaseResponseDto<List<DepartmentWorkTimeResponse>> { Data = result };
+    }
+
+    private string FormatTimeSpan(TimeSpan? time)
+    {
+        if (!time.HasValue) return "";
+        return $"{(int)time.Value.TotalHours:D2}:{time.Value.Minutes:D2}";
     }
 }
 
 
 
+using System.Globalization;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Common;
+using BpmBaseApi.Shared.Responses.Common;
+using MediatR;
 
-services.AddScoped(typeof(IGenericRepositoryString<>), typeof(GenericRepositoryString<>));
+namespace BpmBaseApi.Application.QueryHandlers.Common;
 
-
-
-
-
-private readonly IGenericRepositoryString<DepartmentEntity> _departmentRepository;
-
-public MyService(IGenericRepositoryString<DepartmentEntity> departmentRepository)
+public class GetDepartmentWorkTimeQueryHandler : IRequestHandler<GetDepartmentWorkTimeQuery, BaseResponseDto<List<DepartmentWorkTimeResponse>>>
 {
-    _departmentRepository = departmentRepository;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public GetDepartmentWorkTimeQueryHandler(IUnitOfWork unitOfWork)
+    {
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<BaseResponseDto<List<DepartmentWorkTimeResponse>>> Handle(GetDepartmentWorkTimeQuery query, CancellationToken cancellationToken)
+    {
+        Console.WriteLine($"[Debug] DepartmetId {query.DepartmentId}");
+        Console.WriteLine($"[Debug] Periodtype {query.PeriodType}, Date {query.Date}, Year {query.Year}, Month {query.Month}");
+
+        DateTime startDate;
+        DateTime endDate;
+
+        if (query.PeriodType == PeriodType.Day && query.Date.HasValue)
+        {
+            startDate = query.Date.Value.ToDateTime(TimeOnly.MinValue);
+            endDate = query.Date.Value.ToDateTime(TimeOnly.MaxValue);
+        }
+        else
+        {
+            startDate = new DateTime(query.Year, query.Month, 1);
+            endDate = startDate.AddMonths(1).AddDays(-1);
+        }
+
+        Console.WriteLine($"[Debug] StartDate {startDate}, EndDate {endDate}");
+
+        var sessions = await _unitOfWork.WorkSessionRepository.GetByFilterListAsync(
+            cancellationToken,
+            s => s.ParentDepId == query.DepartmentId &&
+                 s.StartTime >= startDate &&
+                 s.StartTime <= endDate);
+
+        Console.WriteLine($"[Debug] Сессий найденно {sessions.Count}");
+
+        foreach (var s in sessions.Take(5))
+        {
+            Console.WriteLine($"[Debug] Session {s.UserCode}, {s.UserName}, {s.StartTime} - {s.EndTime}");
+        }
+
+        var userCodes = sessions.Select(s => s.UserCode).Distinct().ToList();
+
+        var employees = await _unitOfWork.EmployeeIntRepository.GetByFilterListAsync(
+            cancellationToken,
+            e => userCodes.Contains(e.LoginAd));
+
+        var departments = await _unitOfWork.DepartmentIntRepository.GetByFilterListAsync(cancellationToken);
+
+        var employeeMap = employees.ToDictionary(
+            e => e.LoginAd,
+            e =>
+            {
+                var dep = departments.FirstOrDefault(d => d.Id.Trim() == (e.DepId?.Trim() ?? ""));
+                var parentName = departments.FirstOrDefault(d => d.Id.Trim() == (dep?.ParentId?.Trim() ?? ""))?.Name ?? "";
+                return (
+                    e.Position ?? "",
+                    e.DepName ?? "",
+                    parentName
+                );
+            });
+
+        Console.WriteLine($"[Debug] Employee map count {employeeMap.Count}");
+        foreach (var emp in employeeMap.Take(5))
+        {
+            Console.WriteLine($"[Debug] {emp.Key} => {emp.Value.Item1}, {emp.Value.Item2}, {emp.Value.Item3}");
+        }
+
+        var result = sessions
+            .OrderBy(s =>
+            {
+                if (employeeMap.TryGetValue(s.UserCode, out var info))
+                    return info.Item2;
+                return "";
+            })
+            .ThenBy(s => s.UserName)
+            .ThenBy(s => s.StartTime)
+            .Select(s =>
+            {
+                var info = employeeMap.TryGetValue(s.UserCode, out var data)
+                    ? data
+                    : ("", "", "");
+
+                return new DepartmentWorkTimeResponse
+                {
+                    UserCode = s.UserCode,
+                    FullName = s.UserName,
+                    Position = info.Item1,
+                    DepartmentName = info.Item2,
+                    ParentDepartmentName = info.Item3,
+                    Date = s.StartTime.ToString("dd.MM.yyyy"),
+                    StartTime = s.StartTime.ToString("HH:mm"),
+                    EndTime = s.EndTime?.ToString("HH:mm"),
+                    TotalTime = FormatTimeSpan(s.TotalTime),
+                    WeekDay = CultureInfo.GetCultureInfo("ru-RU").DateTimeFormat.GetDayName(s.StartTime.DayOfWeek),
+                    Status = s.TotalTime.HasValue && s.TotalTime.Value >= TimeSpan.FromHours(9) ? "OK" : ""
+                };
+            })
+            .ToList();
+
+        return new BaseResponseDto<List<DepartmentWorkTimeResponse>> { Data = result };
+    }
+
+    private string FormatTimeSpan(TimeSpan? time)
+    {
+        if (!time.HasValue) return "";
+        return $"{(int)time.Value.TotalHours:D2}:{time.Value.Minutes:D2}";
+    }
 }
+
 
