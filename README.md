@@ -1,4 +1,4 @@
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+**info: Microsoft.EntityFrameworkCore.Database.Command[20101]
       Executed DbCommand (5ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
       CREATE INDEX "IX_DepartmentCreatedEvent_DepartmentEntityId" ON "DepartmentCreatedEvent" ("DepartmentEntityId");
 info: Microsoft.EntityFrameworkCore.Database.Command[20101]
@@ -493,3 +493,4 @@ namespace BpmBaseApi.Persistence.Migrations
         }
     }
 }
+**
