@@ -1,9 +1,8 @@
 using System.Linq.Expressions;
-using BpmBaseApi.Domain.SeedWork;
 
 namespace BpmBaseApi.Persistence.Interfaces;
 
-public interface IGenericRepositoryInt<TEntity>
+public interface IGenericRepositoryString<TEntity>
 {
     ValueTask<TEntity?> GetByFilterAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
 
@@ -11,26 +10,25 @@ public interface IGenericRepositoryInt<TEntity>
 
     Task<int> CountAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
 
-    ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, int id);
+    ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, string id);
 
-    Task DeleteByIdAsync(int id, CancellationToken cancellationToken);
+    Task DeleteByIdAsync(string id, CancellationToken cancellationToken);
 }
 
 
 using System.Linq.Expressions;
-using BpmBaseApi.Domain.SeedWork;
 using BpmBaseApi.Persistence.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace BpmBaseApi.Persistence.Repositories;
 
-public class GenericRepositoryInt<TEntity> : IGenericRepositoryInt<TEntity>
-    where TEntity : BaseIntEntity
+public class GenericRepositoryString<TEntity> : IGenericRepositoryString<TEntity>
+    where TEntity : class
 {
     private readonly ApplicationDbContext _context;
     private readonly DbSet<TEntity> _dbSet;
 
-    public GenericRepositoryInt(ApplicationDbContext context)
+    public GenericRepositoryString(ApplicationDbContext context)
     {
         _context = context;
         _dbSet = _context.Set<TEntity>();
@@ -53,12 +51,12 @@ public class GenericRepositoryInt<TEntity> : IGenericRepositoryInt<TEntity>
         return await (filter != null ? _dbSet.CountAsync(filter, cancellationToken) : _dbSet.CountAsync(cancellationToken));
     }
 
-    public async ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, int id)
+    public async ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, string id)
     {
-        return await _dbSet.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+        return await _dbSet.FindAsync(new object?[] { id }, cancellationToken: cancellationToken);
     }
 
-    public async Task DeleteByIdAsync(int id, CancellationToken cancellationToken)
+    public async Task DeleteByIdAsync(string id, CancellationToken cancellationToken)
     {
         var entity = await GetByIdAsync(cancellationToken, id);
         if (entity != null)
@@ -68,3 +66,20 @@ public class GenericRepositoryInt<TEntity> : IGenericRepositoryInt<TEntity>
         }
     }
 }
+
+
+
+
+services.AddScoped(typeof(IGenericRepositoryString<>), typeof(GenericRepositoryString<>));
+
+
+
+
+
+private readonly IGenericRepositoryString<DepartmentEntity> _departmentRepository;
+
+public MyService(IGenericRepositoryString<DepartmentEntity> departmentRepository)
+{
+    _departmentRepository = departmentRepository;
+}
+
