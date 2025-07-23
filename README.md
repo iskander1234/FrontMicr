@@ -1,65 +1,4 @@
-**public List<LDAPEmployee> GetLdapEmployees()
-{
-    _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
-
-    var credentials = new NetworkCredential(_bindDn, _password);
-    var identifier = new LdapDirectoryIdentifier(_server, _port);
-
-    using var connection = new LdapConnection(identifier, credentials, AuthType.Negotiate);
-    connection.SessionOptions.ProtocolVersion = 3;
-
-    try
-    {
-        connection.Bind();
-        _logger.LogInformation("LDAP bind successful");
-    }
-    catch (LdapException ex)
-    {
-        _logger.LogError(ex, "LDAP bind failed: {Message}", ex.Message);
-        throw;
-    }
-
-    _logger.LogInformation("Sending paged LDAP search request with filter: {Filter}", _filter);
-
-    var employees = new List<LDAPEmployee>();
-
-    var pageSize = 1000;
-    var cookie = Array.Empty<byte>();
-    var searchRequest = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
-
-    do
-    {
-        var pageControl = new PageResultRequestControl(pageSize) { Cookie = cookie };
-        searchRequest.Controls.Clear();
-        searchRequest.Controls.Add(pageControl);
-
-        var response = (SearchResponse)connection.SendRequest(searchRequest);
-
-        foreach (SearchResultEntry entry in response.Entries)
-        {
-            try
-            {
-                var emp = new LDAPEmployee(entry);
-                employees.Add(emp);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse entry");
-            }
-        }
-
-        var pageResponse = response.Controls
-            .OfType<PageResultResponseControl>()
-            .FirstOrDefault();
-
-        cookie = pageResponse?.Cookie ?? Array.Empty<byte>();
-
-    } while (cookie != null && cookie.Length > 0);
-
-    _logger.LogInformation("✅ Импортировано {Count} записей из LDAP.", employees.Count);
-    return employees;
-}
-**"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=7856 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.72 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
+"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=7856 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.72 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
 warn: Microsoft.EntityFrameworkCore.Model.Validation[10400]
       Sensitive data logging is enabled. Log entries and exception messages may include sensitive application data; this mode should only be enabled during development.
 info: Microsoft.EntityFrameworkCore.Database.Command[20101]
@@ -116,6 +55,11 @@ _tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.posit
  Обновлены поля LoginAd в таблице employees.
 
 Process finished with exit code 0.
+
+
+
+
+
 
 using System.DirectoryServices.Protocols;
 using System.Net;
@@ -215,4 +159,15 @@ public class LdapEmployeeSyncService
     }
 
 }
+
+
+
+
+
+
+
+
+
+
+
 
