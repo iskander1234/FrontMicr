@@ -1,8 +1,8 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.DirectoryServices;
+using System.DirectoryServices.Protocols;
 using System.Linq;
+using System.Net;
 using DinDin.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -12,103 +12,91 @@ namespace DinDin.Services
     public class LdapEmployeeSyncService
     {
         private readonly ILogger<LdapEmployeeSyncService> _logger;
-        private readonly string _ldapPath;
+        private readonly string _server;
+        private readonly int _port;
         private readonly string _bindDn;
         private readonly string _password;
+        private readonly string _searchBase;
         private readonly string _filter;
-        private readonly string[] _properties;
+        private readonly string[] _attributes;
 
-        public LdapEmployeeSyncService(IConfiguration config, ILogger<LdapEmployeeSyncService> logger)
+        public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
         {
             _logger = logger;
-            var server = config["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
-            var port = config["LDAPConfig:Port"] ?? "389";
-            var baseDn = config["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
-            _ldapPath = $"LDAP://{server}:{port}/{baseDn}";
-            _bindDn = config["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
-            _password = config["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
-            _filter = config["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
-            _properties = config.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>()
-                          ?? Array.Empty<string>();
+            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
+            _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
+            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
+            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
+            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
 
-            _logger.LogInformation("LDAP DirectorySearcher configured: {Path}", _ldapPath);
+            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
+            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
+
+            _logger.LogInformation("LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}", _server, _port, _bindDn, _searchBase);
         }
 
         public List<LDAPEmployee> GetLdapEmployees()
         {
+            _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
+
+            var credentials = new NetworkCredential(_bindDn, _password);
+            var identifier = new LdapDirectoryIdentifier(_server, _port);
+
+            using var connection = new LdapConnection(identifier, credentials, AuthType.Negotiate);
+            connection.SessionOptions.ProtocolVersion = 3;
+            connection.Bind();
+
             var employees = new List<LDAPEmployee>();
-            try
+            const int pageSize = 1000;
+
+            // Разбиение по первой букве sAMAccountName
+            var segments = Enumerable.Range('0', '9' - '0' + 1)
+                             .Select(i => (char)i)
+                             .Concat(Enumerable.Range('A', 'Z' - 'A' + 1).Select(i => (char)i))
+                             .ToList();
+
+            foreach (var startChar in segments)
             {
-                using var entry = new DirectoryEntry(_ldapPath, _bindDn, _password, AuthenticationTypes.Secure);
-                using var searcher = new DirectorySearcher(entry, _filter, _properties)
-                {
-                    PageSize = 500,
-                    ReferralChasing = ReferralChasingOption.All,
-                    SearchScope = SearchScope.Subtree,
-                    CacheResults = false
-                };
+                char endChar = (char)(startChar + 1);
+                string segmentFilter = startChar == 'Z'
+                    ? $"(&{_filter}(sAMAccountName>={startChar}))"
+                    : $"(&{_filter}(sAMAccountName>={startChar})(sAMAccountName<{endChar}))";
 
-                _logger.LogInformation("Starting search via DirectorySearcher...");
-                using var results = searcher.FindAll();
-                _logger.LogInformation("DirectorySearcher returned {Count} results", results.Count);
+                _logger.LogInformation("Starting segment filter: {Filter}", segmentFilter);
 
-                foreach (SearchResult res in results)
+                var pageControl = new PageResultRequestControl(pageSize);
+                byte[] cookie = Array.Empty<byte>();
+
+                do
                 {
-                    try
+                    var request = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
+                    pageControl.Cookie = cookie;
+                    request.Controls.Add(pageControl);
+
+                    var response = (SearchResponse)connection.SendRequest(request);
+
+                    foreach (SearchResultEntry entry in response.Entries)
                     {
-                        var emp = new LDAPEmployee
+                        try
                         {
-                            UserStatusCode = GetInt(res, "userAccountControl"),
-                            IsDisabled = (GetInt(res, "userAccountControl") & 2) != 0,
-                            GivenName = GetString(res, "givenName"),
-                            Name = GetString(res, "cn") ?? string.Empty,
-                            PositionName = GetString(res, "position"),
-                            Title = GetString(res, "title"),
-                            Department = GetString(res, "department"),
-                            Login = GetString(res, "sAMAccountName") ?? string.Empty,
-                            LocalPhone = GetString(res, "telephoneNumber"),
-                            MobileNumber = GetString(res, "mobile"),
-                            City = GetString(res, "l"),
-                            LocationAddress = GetString(res, "streetAddress"),
-                            PostalCode = GetString(res, "postalCode"),
-                            Company = GetString(res, "company"),
-                            Manager = GetString(res, "manager"),
-                            Email = GetString(res, "mail"),
-                            MemberOf = GetArray(res, "memberOf")
-                        };
-                        emp.MemberOfString = emp.MemberOf == null ? null : string.Join(";", emp.MemberOf);
-                        employees.Add(emp);
+                            employees.Add(new LDAPEmployee(entry));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse entry in segment {Segment}", startChar);
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Error parsing entry {Path}", res.Path);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "DirectorySearcher failed: {Message}", ex.Message);
-                throw;
+
+                    var pageResp = response.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
+                    cookie = pageResp?.Cookie ?? Array.Empty<byte>();
+
+                    _logger.LogInformation("Segment {Segment}: Loaded {Count} records, total so far: {Total}", startChar, response.Entries.Count, employees.Count);
+
+                } while (cookie != null && cookie.Length > 0);
             }
 
-            _logger.LogInformation("🎯 Total records via DirectorySearcher: {Count}", employees.Count);
+            _logger.LogInformation("🎯 Total records retrieved from LDAP: {Count}", employees.Count);
             return employees;
         }
-
-        private static string? GetString(SearchResult res, string propName) =>
-            res.Properties.Contains(propName) && res.Properties[propName].Count > 0
-                ? res.Properties[propName][0]?.ToString()
-                : null;
-
-        private static int GetInt(SearchResult res, string propName) =>
-            int.TryParse(GetString(res, propName), out var i) ? i : 0;
-
-        private static string[]? GetArray(SearchResult res, string propName) =>
-            res.Properties.Contains(propName)
-                ? res.Properties[propName]
-                    .Cast<object>()
-                    .Select(o => o.ToString()!)
-                    .ToArray()
-                : null;
     }
 }
