@@ -13,23 +13,62 @@ public class LDAPUsersRepository
         _context = context;
     }
 
-    public async Task UpdateByKey(List<LDAPEmployee> employees)
+    /// <summary>
+    /// Полностью заменяет таблицу LdapEmployees — сначала очищает, затем вставляет все записи.
+    /// </summary>
+    public async Task ReplaceAllLdapEmployees(List<LDAPEmployee> employees)
     {
-        var logins = employees.Select(e => e.Login).ToList();
-        var existing = await _context.LdapEmployees
-            .Where(x => logins.Contains(x.Login))
+        // Очищаем таблицу
+        await _context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE \"LdapEmployees\" RESTART IDENTITY");
+
+        // Вставляем все записи одним Bulk-вызовом
+        await _context.BulkInsertAsync(employees);
+    }
+
+    /// <summary>
+    /// Обновляет поле LoginAd в таблице Employees, если mail совпадает с Email в LdapEmployees
+    /// </summary>
+    public async Task SyncEmployeeLoginsByEmail()
+    {
+        var ldapList = await _context.LdapEmployees
+            .Where(x => !string.IsNullOrEmpty(x.Email))
             .ToListAsync();
 
-        var toUpdate = employees.Where(e => existing.Any(x => x.Login == e.Login)).ToList();
-        var toInsert = employees.Where(e => existing.All(x => x.Login != e.Login)).ToList();
+        var emailToLogin = ldapList
+            .GroupBy(e => e.Email.ToLower())
+            .ToDictionary(g => g.Key, g => g.First().Login);
 
-        foreach (var updated in toUpdate)
+        var employees = await _context.Employees
+            .Where(e => !string.IsNullOrEmpty(e.Mail))
+            .ToListAsync();
+
+        foreach (var emp in employees)
         {
-            var record = existing.First(x => x.Login == updated.Login);
-            _context.Entry(record).CurrentValues.SetValues(updated);
+            var email = emp.Mail?.ToLower();
+            if (email != null && emailToLogin.TryGetValue(email, out var login))
+            {
+                emp.LoginAd = login;
+            }
         }
 
-        _context.LdapEmployees.AddRange(toInsert);
         await _context.SaveChangesAsync();
+    }
+}
+
+
+
+public class LdapSyncService
+{
+    private readonly LDAPUsersRepository _ldapRepo;
+
+    public LdapSyncService(LDAPUsersRepository ldapRepo)
+    {
+        _ldapRepo = ldapRepo;
+    }
+
+    public async Task SyncLdapDataAsync(List<LDAPEmployee> fetchedLdapList)
+    {
+        await _ldapRepo.ReplaceAllLdapEmployees(fetchedLdapList);
+        await _ldapRepo.SyncEmployeeLoginsByEmail();
     }
 }
