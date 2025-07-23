@@ -1,226 +1,286 @@
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Internal;
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.DirectoryServices.Protocols;
-using System.Linq;
 using System.Reflection;
-using System.Runtime.Serialization;
-using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading.Tasks;
+using DinDin.Extensions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace DailyDataUpdateApp.Models;
+namespace DinDin.Models;
 
-
-[Serializable]
-public record LDAPEmployee : IEntityTypeConfiguration<LDAPEmployee>
+[Table("ldap_employees")]
+public class LDAPEmployee
 {
-    [Column(name: "id")]
+    [Key]
+    [Column("id")]
     public int Id { get; set; }
-    [Column(name: "user_status_code")]
-    [JsonPropertyName("UserAccountControl")]
+
+    [Column("user_status_code")]
     public int UserStatusCode { get; set; }
-    [Column(name: "is_disabled")]
+
+    [Column("is_disabled")]
     public bool IsDisabled { get; set; }
-    [Column(name: "given_name", TypeName = "varchar")]
-    [JsonPropertyName("givenName")]
-    public string? GivenName { get; set; } = null!;
-    [Column(name: "name", TypeName = "varchar")]
-    [JsonPropertyName("cn")]
-    public string Name { get; set; } = null!;
-    [Column(name: "position_name", TypeName = "varchar")]
-    [JsonPropertyName("description")]
-    public string? PositionName { get; set; } = null!;
-    [Column(name: "title", TypeName = "varchar")]
-    [JsonPropertyName("title")]
-    public string? Title { get; set; } = null!;
-    [Column(name: "department", TypeName = "varchar")]
-    [JsonPropertyName("department")]
-    public string? Department { get; set; } = null!;
-    [Column(name: "login", TypeName = "varchar")]
-    [JsonPropertyName("sAMAccountName")]
-    public string Login { get; set; } = null!;
-    [Column(name: "local_phone", TypeName = "varchar")]
-    [JsonPropertyName("ipPhone")]
-    public string? LocalPhone { get; set; } = null!;
-    [Column(name: "mobile_number", TypeName = "varchar")]
-    [JsonPropertyName("telephoneNumber")]
-    public string? MobileNumber { get; set; } = null!;
-    [Column(name: "city", TypeName = "varchar")]
-    [JsonPropertyName("l")]
-    public string? City { get; set; } = null!;
-    [Column(name: "location_address", TypeName = "varchar")]
-    [JsonPropertyName("streetAddress")]
-    public string? LocationAddress { get; set; } = null!;
-    [Column(name: "postal_code", TypeName = "varchar")]
-    [JsonPropertyName("postalCode")]
-    public string? PostalCode { get; set; } = null!;
-    [Column(name: "company", TypeName = "varchar")]
-    [JsonPropertyName("company")]
-    public string? Company { get; set; } = null!;
-    [Column(name: "manager", TypeName = "varchar")]
-    [JsonPropertyName("manager")]
-    public string? Manager { get; set; } = null!;
-    [Column(name: "email", TypeName = "varchar")]
-    [JsonPropertyName("mail")]
-    public string? Email { get; set; } = null!;
-    [Column(name: "member_of")]
-    [JsonPropertyName("memberof")]
-    public List<string>? MemberOf { get; set; } = null!;
-    [Column(name: "member_of_string", TypeName = "varchar")]
-    public string? MemberOfString { get; set; } = null!;
-    [Column(name: "is_manager")]
-    public bool IsManager { get; set; } = false;
 
-    [Column(name: "group_id")]
-    public int? GroupId { get; set; } = null!;
-    [Column(name: "department_id")]
-    public int? DepartmentId { get; set; } = null!;
-    [Column(name: "department_details", TypeName = "jsonb")]
-    public List<DepartmentDetail>? DepartmentDetails { get; set; } = null!;
-    public LDAPEmployee() { }
-    #region SetValueFromLdap
+    [Column("given_name")]
+    public string? GivenName { get; set; }
 
-    public LDAPEmployee(in SearchResultEntry searchEntry)
-    {
-        var properties = typeof(LDAPEmployee).GetProperties();
-        var entry = searchEntry;
-        foreach (var property in properties)
-        {
-            var jsonName = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name;
+    [Column("name")]
+    public string Name { get; set; } = "";
 
-            if (jsonName == null || !entry.Attributes.Contains(jsonName))
-                continue;
+    [Column("position_name")]
+    public string? PositionName { get; set; }
 
-            var value = entry.Attributes[jsonName][0]?.ToString();
-            if (string.IsNullOrEmpty(value))
-                return;
-            SetByJsonName(property, jsonName, value);
-        }
-    }
-    private string? SetByJsonName(in PropertyInfo prop, string? jsonName, string value)
-    {
-        if (jsonName == "memberof")
-            SetMemberOf(value);
-        else if (jsonName == "manager" && value.Contains(','))
-            value = value
-                .Split(',')[0]
-                .Replace("CN=", "")
-                .Trim();
-        else if (prop.PropertyType == typeof(int) && int.TryParse(value, out var intValue))
-        {
-            if (jsonName == "UserAccountControl")
-                IsDisabled = IsAccountDisabled(intValue);
-            prop.SetValue(this, intValue);
-        }
-        else prop.SetValue(this, value);
-        return value;
-    }
+    [Column("title")]
+    public string? Title { get; set; }
 
-    private void SetMemberOf(in string value)
+    [Column("department")]
+    public string? Department { get; set; }
+
+    [Column("login")]
+    public string Login { get; set; } = "";
+
+    [Column("local_phone")]
+    public string? LocalPhone { get; set; }
+
+    [Column("mobile_number")]
+    public string? MobileNumber { get; set; }
+
+    [Column("city")]
+    public string? City { get; set; }
+
+    [Column("location_address")]
+    public string? LocationAddress { get; set; }
+
+    [Column("postal_code")]
+    public string? PostalCode { get; set; }
+
+    [Column("company")]
+    public string? Company { get; set; }
+
+    [Column("manager")]
+    public string? Manager { get; set; }
+
+    [Column("email")]
+    public string? Email { get; set; }
+
+    [Column("member_of")]
+    public string[]? MemberOf { get; set; }
+
+    [Column("member_of_string")]
+    public string? MemberOfString { get; set; }
+
+    [Column("department_id")]
+    public int? DepartmentId { get; set; }
+
+    [Column("department_details")]
+    public JsonDocument? DepartmentDetails { get; set; }
+
+    [Column("group_id")]
+    public int? GroupId { get; set; }
+
+    [Column("is_manager")]
+    public bool IsManager { get; set; }
+
+    public LDAPEmployee() {}
+
+    public LDAPEmployee(SearchResultEntry entry)
     {
-        MemberOf ??= [];
-        MemberOfString = value.Replace(",DC=enpf,DC=kz", "");
-        MemberOf = MemberOfString!
-            .Replace(",OU=Группы", "")
-            .Replace(",CN=Users", "")
-            .Replace("OU=", "")
-            .Replace("CN=", "")
-            .Split(",")
-            .Distinct()
-            .ToList();
-    }
-    static bool IsAccountDisabled(int userAccountControlValue)
-    {
-        const int ACCOUNTDISABLE = 0x0002;
-        return (userAccountControlValue & ACCOUNTDISABLE) == ACCOUNTDISABLE;
-    }
-    #endregion
-    public void Configure(EntityTypeBuilder<LDAPEmployee> builder)
-    {
-        builder.ToTable("ldap_employees", "public",e => e.ExcludeFromMigrations());
-        builder.HasKey(e => e.Id);
-        builder.Property(e => e.Id).UseIdentityColumn();
-        builder.HasIndex(e => e.Id);
-        builder.Property(e => e.PositionName).IsRequired(false);
-        builder.HasIndex(e => e.Login).IsUnique();
+        UserStatusCode = entry.GetInt("userAccountControl");
+        IsDisabled = (UserStatusCode & 2) != 0;
+        GivenName = entry.GetString("givenName");
+        Name = entry.GetString("cn") ?? "";
+        PositionName = entry.GetString("position");
+        Title = entry.GetString("title");
+        Department = entry.GetString("department");
+        Login = entry.GetString("sAMAccountName") ?? "";
+        LocalPhone = entry.GetString("telephoneNumber");
+        MobileNumber = entry.GetString("mobile");
+        City = entry.GetString("l");
+        LocationAddress = entry.GetString("streetAddress");
+        PostalCode = entry.GetString("postalCode");
+        Company = entry.GetString("company");
+        Manager = entry.GetString("manager");
+        Email = entry.GetString("mail");
+        MemberOf = entry.GetStringArray("memberOf");
+        MemberOfString = MemberOf == null ? null : string.Join(";", MemberOf);
+        IsManager = false;
     }
 }
 
-using DailyDataUpdateApp.Interfaces.Shared.Repositories;
-using DailyDataUpdateApp.Models;
-using DailyDataUpdateApp.Shared.Contexes;
+
+
+using System.DirectoryServices.Protocols;
+using System.Net;
+using DinDin.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+
+namespace DinDin.Services;
+
+public class LdapEmployeeSyncService
+{
+    private readonly ILogger<LdapEmployeeSyncService> _logger;
+    private readonly string _server;
+    private readonly int _port;
+    private readonly string _bindDn;
+    private readonly string _password;
+    private readonly string _searchBase;
+    private readonly string _filter;
+    private readonly string[] _attributes;
+
+    public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
+    {
+        _logger = logger;
+
+        _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
+        _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
+        _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
+        _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
+        _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
+
+        _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
+        _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
+
+        _logger.LogInformation("LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}", _server, _port, _bindDn, _searchBase);
+    }
+
+    public List<LDAPEmployee> GetLdapEmployees()
+{
+    _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
+
+    var credentials = new NetworkCredential(_bindDn, _password);
+    var identifier = new LdapDirectoryIdentifier(_server, _port);
+
+    using var connection = new LdapConnection(identifier, credentials, AuthType.Negotiate);
+    connection.SessionOptions.ProtocolVersion = 3;
+
+    try
+    {
+        connection.Bind();
+        _logger.LogInformation("LDAP bind successful");
+    }
+    catch (LdapException ex)
+    {
+        _logger.LogError(ex, "LDAP bind failed: {Message}", ex.Message);
+        throw;
+    }
+
+    var employees = new List<LDAPEmployee>();
+    var pageSize = 1000;
+    var cookie = Array.Empty<byte>();
+
+    do
+    {
+        // Создаём новый запрос на каждой итерации
+        var searchRequest = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
+
+        // Добавляем постраничную пагинацию
+        var pageControl = new PageResultRequestControl(pageSize) { Cookie = cookie };
+        searchRequest.Controls.Add(pageControl);
+
+        // Выполняем запрос
+        var response = (SearchResponse)connection.SendRequest(searchRequest);
+
+        // Обрабатываем записи
+        foreach (SearchResultEntry entry in response.Entries)
+        {
+            try
+            {
+                var emp = new LDAPEmployee(entry);
+                employees.Add(emp);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse entry");
+            }
+        }
+
+        // Извлекаем cookie для следующей страницы
+        var pageResponse = response.Controls.OfType<PageResultResponseControl>().FirstOrDefault();
+        cookie = pageResponse?.Cookie ?? Array.Empty<byte>();
+
+        _logger.LogInformation("Загружено ещё {Count} записей, всего: {Total}", response.Entries.Count, employees.Count);
+
+    } while (cookie != null && cookie.Length > 0);
+
+    _logger.LogInformation("✅ Всего импортировано из LDAP: {Count} записей", employees.Count);
+    return employees;
+}
+
+}
+
+
+using DinDin.Models;
 using EFCore.BulkExtensions;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace DailyDataUpdateApp.Repositories
+namespace DinDin.Repositories;
+
+public class LDAPUsersRepository
 {
-    internal class LDAPUsersRepository(BpmCoreUserContext userContext) : IListRepository<LDAPEmployee>
+    private readonly BpmcoreContext _context;
+
+    public LDAPUsersRepository(BpmcoreContext context)
     {
-        
-        public async Task UpdateByKey(List<LDAPEmployee> updatedLdapEmployees)
+        _context = context;
+    }
+
+    /// <summary>
+    /// Полностью заменяет таблицу LdapEmployees — сначала очищает, затем вставляет все записи.
+    /// </summary>
+    public async Task ReplaceAllLdapEmployees(List<LDAPEmployee> employees)
+    {
+        // Очищаем таблицу
+        await _context.Database.ExecuteSqlRawAsync("TRUNCATE TABLE \"ldap_employees\" RESTART IDENTITY");
+
+        // Вставляем по батчам (например, по 1000)
+        var bulkConfig = new BulkConfig
         {
-            await userContext.BulkInsertOrUpdateAsync(updatedLdapEmployees.ToList(), options =>
-            {
-                options.BatchSize = 1000;
-                options.IncludeGraph = false;
-                options.UpdateByProperties = ["Login"];
-                options.SetOutputIdentity = true;
-                options.UseTempDB = false;
-                options.PropertiesToExclude =
-                [
-                    "Id", "GroupId", "DepartmentId",
-                    //"DepartmentDetails",
-                    "IsManager"
-                ];
-            });
-        }
+            BatchSize = 1000,         // Можно увеличить до 2000–5000
+            UseTempDB = true          // Улучшает производительность
+        };
+
+        await _context.BulkInsertAsync(employees, bulkConfig);
     }
-}
 
-using DailyDataUpdateApp.Interfaces.Complex.Services.Ldap;
-using DailyDataUpdateApp.Models;
-using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace DailyDataUpdateApp.Services.Ldap;
-internal class UserLDAPService(IConfiguration configuration) : LDAPService(configuration), IUserLdapService
-{
-    public override string Filter => "UserPerson";
-
-    public List<LDAPEmployee> GetLDAPEmployees()
+    /// <summary>
+    /// Обновляет поле LoginAd в таблице Employees, если mail совпадает с Email в LdapEmployees
+    /// </summary>
+    public async Task SyncEmployeeLoginsByEmail()
     {
-        var results = LdapPagedSearch();
-        var employeeResults = results
-            .Select(e => new LDAPEmployee(e))
-            .ToList();
-        return employeeResults;
+        var ldapList = await _context.LdapEmployees
+            .Where(x => !string.IsNullOrEmpty(x.Email))
+            .ToListAsync();
+
+        var emailToLogin = ldapList
+            .GroupBy(e => e.Email.ToLower())
+            .ToDictionary(g => g.Key, g => g.First().Login);
+
+        var employees = await _context.Employees
+            .Where(e => !string.IsNullOrEmpty(e.Mail))
+            .ToListAsync();
+
+        foreach (var emp in employees)
+        {
+            var email = emp.Mail?.ToLower();
+            if (email != null && emailToLogin.TryGetValue(email, out var login))
+            {
+                emp.LoginAd = login;
+            }
+        }
+
+        await _context.SaveChangesAsync();
     }
 }
+
 
 {
   "ConnectionStrings": {
-    "BpmCore": "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=bpmbase5;SslMode=Disable;SearchPath=default"
+    "BpmCore": "Host=localhost;Port=5432;Username=postgres;Password=postgres;Database=bpmbase_local;SslMode=Disable;SearchPath=default"
   },
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.Hosting.Lifetime": "Information"
-    }
-  },
+
   "LDAPConfig": {
     "Server": "172.31.0.252",
     "Port": "389",
@@ -238,7 +298,6 @@ internal class UserLDAPService(IConfiguration configuration) : LDAPService(confi
           "memberof",
           "manager",
           "cn",
-          "UserAccountControl&2",
           "UserAccountControl",
           "mail",
           "sn",
@@ -257,25 +316,8 @@ internal class UserLDAPService(IConfiguration configuration) : LDAPService(confi
           "description",
           "ipPhone"
         ]
-      },
-      "Group": {
-        "Code": "(objectCategory=group)",
-        "Keys": [
-          "name",
-          "cn",
-          "gidNumber",
-          "description",
-          "memberof",
-          "primarygrouptoken",
-          "primarygroupid",
-          "samaccountname",
-          "distinguishedname"
-        ]
-      },
-      "User": "(objectClass=user)",
-      "Person": "(objectCategory=PERSON)"
+      }
     }
-  },
-  "AllowedHosts": "*"
-}
+  }
 
+}
