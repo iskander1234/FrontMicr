@@ -1,3 +1,7 @@
+// Ensure your .csproj has these references:
+// <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.0" />
+// <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
+
 using System;
 using System.Collections.Generic;
 using System.DirectoryServices.Protocols;
@@ -23,16 +27,16 @@ namespace DinDin.Services
         public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
         {
             _logger = logger;
-            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("LDAPConfig:Server is required");
+            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("LDAPConfig:Server");
             _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
-            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("LDAPConfig:BindDN is required");
-            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("LDAPConfig:Password is required");
-            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("LDAPConfig:SearchBase is required");
+            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("LDAPConfig:BindDN");
+            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("LDAPConfig:Password");
+            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("LDAPConfig:SearchBase");
             _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
-            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
+            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>()
+                          ?? Array.Empty<string>();
 
-            _logger.LogInformation("LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}",
-                _server, _port, _bindDn, _searchBase);
+            _logger.LogInformation("LDAP Config: {Server}:{Port}, BaseDN={SearchBase}", _server, _port, _searchBase);
         }
 
         public List<LDAPEmployee> GetLdapEmployees()
@@ -48,7 +52,7 @@ namespace DinDin.Services
                 connection.Bind();
                 _logger.LogInformation("LDAP bind successful");
             }
-            catch (LdapException ex)
+            catch (Exception ex)
             {
                 _logger.LogError(ex, "LDAP bind failed: {Message}", ex.Message);
                 throw;
@@ -62,17 +66,21 @@ namespace DinDin.Services
             do
             {
                 page++;
+                _logger.LogInformation("Requesting page {Page}...", page);
+
                 var request = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
 
-                // Устанавливаем пагинацию
+                // Sort control for reliable paging
+                var sortKey = new SortKey("sAMAccountName", false);
+                var sortControl = new SortRequestControl(new[] { sortKey });
+                request.Controls.Add(sortControl);
+
+                // Page result control
                 var pageControl = new PageResultRequestControl(pageSize) { Cookie = cookie };
                 request.Controls.Add(pageControl);
 
-                _logger.LogInformation("Requesting page {Page}...", page);
                 var response = (SearchResponse)connection.SendRequest(request);
-
-                var count = response.Entries.Count;
-                _logger.LogInformation("Received page {Page} with {Count} entries", page, count);
+                _logger.LogInformation("Received page {Page} with {Count} entries", page, response.Entries.Count);
 
                 foreach (SearchResultEntry entry in response.Entries)
                 {
@@ -86,14 +94,12 @@ namespace DinDin.Services
                     }
                 }
 
-                // Обновляем код для следующей страницы
                 cookie = response.Controls
                     .OfType<PageResultResponseControl>()
-                    .FirstOrDefault()?
-                    .Cookie
+                    .FirstOrDefault()?.Cookie
                     ?? Array.Empty<byte>();
 
-            } while (cookie != null && cookie.Length > 0);
+            } while (cookie.Length > 0);
 
             _logger.LogInformation("🎯 Total records retrieved from LDAP: {Count}", employees.Count);
             return employees;
