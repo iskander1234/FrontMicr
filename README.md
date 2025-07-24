@@ -1,52 +1,91 @@
-"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=2648 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.98 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
-warn: Microsoft.EntityFrameworkCore.Model.Validation[10400]
-      Sensitive data logging is enabled. Log entries and exception messages may include sensitive application data; this mode should only be enabled during development.
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (163ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      CREATE TABLE "public"."DepartmentsTempf812a89a" AS TABLE "public"."Departments" WITH NO DATA;
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (29ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempf812a89a") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (20ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      DROP TABLE IF EXISTS "public"."DepartmentsTempf812a89a"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (11ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      CREATE TABLE "public"."DepartmentsTempe69237af" AS TABLE "public"."Departments" WITH NO DATA;
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (26ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempe69237a
-f") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (2ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      DROP TABLE IF EXISTS "public"."DepartmentsTempe69237af"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (17ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      SELECT e.id, e.dep_id, e.dep_name, e.disabled, e.is_filial, e.is_manager, e.local_phone, e.login, e.login_ad, e.mail, e.manager_tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.position, e.status_code, e.status_description, e.tab_number
-      FROM public."Employees" AS e
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      DirectorySearcher configured: LDAP://172.31.0.252:389/dc=enpf,dc=kz
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Starting DirectorySearcher.FindAll()...
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      DirectorySearcher returned 4233 entries
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      ? Completed parsing entries. Total added: 0
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (47ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      TRUNCATE TABLE "ldap_employees" RESTART IDENTITY
- Импортировано 0 записей в таблицу ldap_employees.
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (6ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      SELECT l.id, l.city, l.company, l.department, l.department_details, l.department_id, l.email, l.given_name, l.group_id, l.is_disabled, l.is_manager, l.local_phone, l.location_address, l.login, l.manager, l.member_of, l.member_of_string, l.mobile_number, l.name, l.position_name, l.postal_code, l.title, l.user_status_code
-      FROM ldap_employees AS l
-      WHERE l.email IS NOT NULL AND l.email <> ''
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      SELECT e.id, e.dep_id, e.dep_name, e.disabled, e.is_filial, e.is_manager, e.local_phone, e.login, e.login_ad, e.mail, e.manager_tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.position, e.status_code, e.status_description, e.tab_number
-      FROM public."Employees" AS e
-      WHERE e.mail IS NOT NULL AND e.mail <> ''
- Обновлены поля LoginAd в таблице employees.
+using System;
+using System.Collections.Generic;
+using System.DirectoryServices.Protocols;
+using System.Linq;
+using System.Net;
+using DinDin.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
-Process finished with exit code 0.
+namespace DinDin.Services
+{
+    public class LdapEmployeeSyncService
+    {
+        private readonly ILogger<LdapEmployeeSyncService> _logger;
+        private readonly LdapDirectoryIdentifier _identifier;
+        private readonly NetworkCredential _credentials;
+        private readonly string _searchBase;
+        private readonly string _filter;
+        private readonly string[] _attributes;
+        private const int PageSize = 1000;
 
+        public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
+        {
+            _logger = logger;
+            var server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("LDAPConfig:Server is required");
+            var port = int.TryParse(configuration["LDAPConfig:Port"], out var p) ? p : 389;
+            _identifier = new LdapDirectoryIdentifier(server, port);
+            _credentials = new NetworkCredential(
+                configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("LDAPConfig:BindDN is required"),
+                configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("LDAPConfig:Password is required")
+            );
+            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("LDAPConfig:SearchBase is required");
+            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
+            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
+
+            _logger.LogInformation("LDAP service configured for {Server}:{Port}, BaseDN={BaseDN}", server, port, _searchBase);
+        }
+
+        public List<LDAPEmployee> GetLdapEmployees()
+        {
+            using var connection = new LdapConnection(_identifier, _credentials, AuthType.Negotiate);
+            connection.SessionOptions.ProtocolVersion = 3;
+            connection.Bind();
+            _logger.LogInformation("LDAP bind successful");
+
+            var employees = new List<LDAPEmployee>();
+            var seenLogins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Segmentation prefixes: digits and uppercase letters
+            const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+            foreach (var segment in segments)
+            {
+                var segmentFilter = $"(&{_filter}(sAMAccountName={segment}*))";
+                _logger.LogInformation("Segment filter: {Filter}", segmentFilter);
+                byte[] cookie = Array.Empty<byte>();
+
+                do
+                {
+                    var request = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
+                    var pageControl = new PageResultRequestControl(PageSize) { Cookie = cookie };
+                    request.Controls.Add(pageControl);
+
+                    var response = (SearchResponse)connection.SendRequest(request);
+                    _logger.LogInformation("Segment {Segment}: loaded {Count} entries", segment, response.Entries.Count);
+
+                    foreach (SearchResultEntry entry in response.Entries)
+                    {
+                        var login = entry.Attributes["sAMAccountName"]?[0]?.ToString() ?? string.Empty;
+                        if (string.IsNullOrEmpty(login) || !seenLogins.Add(login))
+                            continue;
+                        try
+                        {
+                            employees.Add(new LDAPEmployee(entry));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse entry with login {Login}", login);
+                        }
+                    }
+
+                    cookie = response.Controls.OfType<PageResultResponseControl>().FirstOrDefault()?.Cookie ?? Array.Empty<byte>();
+                }
+                while (cookie.Length > 0);
+            }
+
+            _logger.LogInformation("🎯 Total unique records retrieved: {Count}", employees.Count);
+            return employees;
+        }
+    }
+}
