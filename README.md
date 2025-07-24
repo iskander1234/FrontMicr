@@ -62,17 +62,24 @@ namespace DinDin.Services
                 using var results = searcher.FindAll();
                 _logger.LogInformation("DirectorySearcher returned {Count} entries", results.Count);
 
+                int idx = 0;
                 foreach (SearchResult res in results)
                 {
+                    idx++;
                     try
                     {
-                        employees.Add(new LDAPEmployee(res));
+                        var emp = new LDAPEmployee(res);
+                        employees.Add(emp);
+                        if (idx <= 5)
+                            _logger.LogInformation("Parsed entry #{Index}: Login={Login}, Name={Name}", idx, emp.Login, emp.Name);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Failed to parse entry {Path}", res.Path);
+                        _logger.LogWarning(ex, "Failed to parse entry {Index} Path={Path}", idx, res.Path);
                     }
                 }
+
+                _logger.LogInformation("✅ Completed parsing entries. Total added: {Count}", employees.Count);
             }
             catch (Exception ex)
             {
