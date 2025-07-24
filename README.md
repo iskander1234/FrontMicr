@@ -1,83 +1,52 @@
-using System;
-using System.Collections.Generic;
-using System.DirectoryServices;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
-using DinDin.Models;
+"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=2648 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.98 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
+warn: Microsoft.EntityFrameworkCore.Model.Validation[10400]
+      Sensitive data logging is enabled. Log entries and exception messages may include sensitive application data; this mode should only be enabled during development.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (163ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE TABLE "public"."DepartmentsTempf812a89a" AS TABLE "public"."Departments" WITH NO DATA;
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (29ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempf812a89a") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (20ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      DROP TABLE IF EXISTS "public"."DepartmentsTempf812a89a"
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (11ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      CREATE TABLE "public"."DepartmentsTempe69237af" AS TABLE "public"."Departments" WITH NO DATA;
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (26ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempe69237a
+f") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (2ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      DROP TABLE IF EXISTS "public"."DepartmentsTempe69237af"
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (17ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT e.id, e.dep_id, e.dep_name, e.disabled, e.is_filial, e.is_manager, e.local_phone, e.login, e.login_ad, e.mail, e.manager_tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.position, e.status_code, e.status_description, e.tab_number
+      FROM public."Employees" AS e
+info: DinDin.Services.LdapEmployeeSyncService[0]
+      DirectorySearcher configured: LDAP://172.31.0.252:389/dc=enpf,dc=kz
+info: DinDin.Services.LdapEmployeeSyncService[0]
+      Starting DirectorySearcher.FindAll()...
+info: DinDin.Services.LdapEmployeeSyncService[0]
+      DirectorySearcher returned 4233 entries
+info: DinDin.Services.LdapEmployeeSyncService[0]
+      ? Completed parsing entries. Total added: 0
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (47ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      TRUNCATE TABLE "ldap_employees" RESTART IDENTITY
+ Импортировано 0 записей в таблицу ldap_employees.
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (6ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT l.id, l.city, l.company, l.department, l.department_details, l.department_id, l.email, l.given_name, l.group_id, l.is_disabled, l.is_manager, l.local_phone, l.location_address, l.login, l.manager, l.member_of, l.member_of_string, l.mobile_number, l.name, l.position_name, l.postal_code, l.title, l.user_status_code
+      FROM ldap_employees AS l
+      WHERE l.email IS NOT NULL AND l.email <> ''
+info: Microsoft.EntityFrameworkCore.Database.Command[20101]
+      Executed DbCommand (1ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
+      SELECT e.id, e.dep_id, e.dep_name, e.disabled, e.is_filial, e.is_manager, e.local_phone, e.login, e.login_ad, e.mail, e.manager_tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.position, e.status_code, e.status_description, e.tab_number
+      FROM public."Employees" AS e
+      WHERE e.mail IS NOT NULL AND e.mail <> ''
+ Обновлены поля LoginAd в таблице employees.
 
-namespace DinDin.Services
-{
-    public class LdapEmployeeSyncService
-    {
-        private readonly ILogger<LdapEmployeeSyncService> _logger;
-        private readonly string _ldapPath;
-        private readonly string _bindDn;
-        private readonly string _password;
-        private readonly string _filter;
-        private readonly string[] _attributes;
+Process finished with exit code 0.
 
-        public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
-        {
-            _logger = logger;
-            var server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("LDAPConfig:Server is required");
-            var port = configuration["LDAPConfig:Port"] ?? "389";
-            _ldapPath = $"LDAP://{server}:{port}/{configuration["LDAPConfig:SearchBase"]}";
-            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("LDAPConfig:BindDN is required");
-            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("LDAPConfig:Password is required");
-            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
-            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
-
-            _logger.LogInformation("DirectorySearcher configured: {Path}", _ldapPath);
-        }
-
-        public List<LDAPEmployee> GetLdapEmployees()
-        {
-            var employees = new List<LDAPEmployee>();
-            try
-            {
-                using var entry = new DirectoryEntry(_ldapPath, _bindDn, _password, AuthenticationTypes.Secure);
-                using var searcher = new DirectorySearcher(entry)
-                {
-                    Filter = _filter,
-                    PageSize = 1000,
-                    ReferralChasing = ReferralChasingOption.All,
-                    SearchScope = SearchScope.Subtree,
-                    CacheResults = false
-                };
-
-                foreach (var attr in _attributes)
-                    searcher.PropertiesToLoad.Add(attr);
-
-                _logger.LogInformation("Starting DirectorySearcher.FindAll()...");
-                using var results = searcher.FindAll();
-                _logger.LogInformation("DirectorySearcher returned {Count} entries", results.Count);
-
-                int idx = 0;
-                foreach (SearchResult res in results)
-                {
-                    idx++;
-                    try
-                    {
-                        var emp = new LDAPEmployee(res);
-                        employees.Add(emp);
-                        if (idx <= 5)
-                            _logger.LogInformation("Parsed #{Idx}: Login={Login}, Name={Name}", idx, emp.Login, emp.Name);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to parse entry #{Idx}, Path={Path}", idx, res.Path);
-                    }
-                }
-
-                _logger.LogInformation("✅ Completed parsing entries. Total added: {Count}", employees.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "DirectorySearcher failed: {Message}", ex.Message);
-                throw;
-            }
-
-            return employees;
-        }
-    }
-}
