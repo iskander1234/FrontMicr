@@ -70,12 +70,7 @@ namespace DinDin.Services
 
                 var request = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
 
-                // Sort control for reliable paging
-                var sortKey = new SortKey("sAMAccountName", false);
-                var sortControl = new SortRequestControl(new[] { sortKey });
-                request.Controls.Add(sortControl);
-
-                // Page result control
+                                // Page result control
                 var pageControl = new PageResultRequestControl(pageSize) { Cookie = cookie };
                 request.Controls.Add(pageControl);
 
