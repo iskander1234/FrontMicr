@@ -62,10 +62,6 @@ namespace DinDin.Services
                 {
                     var searchRequest = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
 
-                    // Сортировка по sAMAccountName для корректной пагинации
-                    var sortControl = new SortRequestControl(new[] { "sAMAccountName" });
-                    searchRequest.Controls.Add(sortControl);
-
                     pageControl.Cookie = cookie;
                     searchRequest.Controls.Add(pageControl);
 
