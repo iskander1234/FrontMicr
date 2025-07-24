@@ -13,7 +13,7 @@ namespace DinDin.Services
     {
         private readonly ILogger<LdapEmployeeSyncService> _logger;
         private readonly string _server;
-        private readonly int    _port;
+        private readonly int _port;
         private readonly string _bindDn;
         private readonly string _password;
         private readonly string _searchBase;
@@ -22,83 +22,77 @@ namespace DinDin.Services
 
         public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
         {
-            _logger    = logger;
-            _server    = configuration["LDAPConfig:Server"]    ?? throw new ArgumentNullException("Server");
-            _port      = int.TryParse(configuration["LDAPConfig:Port"], out var p) ? p : 389;
-            _bindDn    = configuration["LDAPConfig:BindDN"]    ?? throw new ArgumentNullException("BindDN");
-            _password  = configuration["LDAPConfig:Password"]  ?? throw new ArgumentNullException("Password");
-            _searchBase= configuration["LDAPConfig:SearchBase"]?? throw new ArgumentNullException("SearchBase");
-            _filter    = configuration["LDAPConfig:Filters:UserPerson:Code"]
-                         ?? "(objectClass=user)";
-            _attributes= configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys")
-                         .Get<string[]>() ?? Array.Empty<string>();
+            _logger = logger;
+            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
+            _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
+            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
+            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
+            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
+            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
+            _attributes = configuration
+                .GetSection("LDAPConfig:Filters:UserPerson:Keys")
+                .Get<string[]>() ?? Array.Empty<string>();
 
             _logger.LogInformation(
-              "LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}",
-               _server, _port, _bindDn, _searchBase);
+                "LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}",
+                _server, _port, _bindDn, _searchBase);
         }
 
         public List<LDAPEmployee> GetLdapEmployees()
         {
+            // Настройка подключения LDAP
             _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
-
-            var creds      = new NetworkCredential(_bindDn, _password);
-            var identifier = new LdapDirectoryIdentifier(_server, _port);
-            using var connection = new LdapConnection(identifier, creds, AuthType.Negotiate);
-            connection.SessionOptions.ProtocolVersion = 3;
-            connection.Bind();
+            var creds = new NetworkCredential(_bindDn, _password);
+            var id = new LdapDirectoryIdentifier(_server, _port);
+            using var conn = new LdapConnection(id, creds, AuthType.Negotiate);
+            conn.SessionOptions.ProtocolVersion = 3;
+            conn.Bind();
             _logger.LogInformation("LDAP bind successful");
 
             var employees = new List<LDAPEmployee>();
-            byte[] cookie = Array.Empty<byte>();
             const int pageSize = 1000;
+            // Сегменты по первой букве/цифре sAMAccountName
+            const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-            do
+            foreach (var segment in segments)
             {
-                // каждый раз создаём новый PageResultRequestControl
-                var pageControl = new PageResultRequestControl(pageSize) { Cookie = cookie };
+                var segmentFilter = $"(&{_filter}(sAMAccountName={segment}*))";
+                _logger.LogInformation("Segment filter: {Filter}", segmentFilter);
 
-                var request = new SearchRequest(
-                    _searchBase,
-                    _filter,
-                    SearchScope.Subtree,
-                    _attributes);
+                byte[] cookie = Array.Empty<byte>();
+                var pageControl = new PageResultRequestControl(pageSize);
 
-                request.Controls.Add(pageControl);
-
-                var response = (SearchResponse)connection.SendRequest(request);
-
-                // добавляем все записи текущей страницы
-                foreach (SearchResultEntry entry in response.Entries)
+                do
                 {
-                    try
+                    var req = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
+                    pageControl.Cookie = cookie;
+                    req.Controls.Add(pageControl);
+
+                    var resp = (SearchResponse)conn.SendRequest(req);
+                    foreach (SearchResultEntry entry in resp.Entries)
                     {
-                        employees.Add(new LDAPEmployee(entry));
+                        try
+                        {
+                            employees.Add(new LDAPEmployee(entry));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse entry in segment {Segment}", segment);
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(
-                          ex,
-                          "Failed to parse entry {DN}",
-                          entry.DistinguishedName);
-                    }
-                }
 
-                // обновляем cookie — если пусто, значит страниц больше нет
-                cookie = response.Controls
-                                 .OfType<PageResultResponseControl>()
-                                 .FirstOrDefault()?.Cookie
-                       ?? Array.Empty<byte>();
+                    // берём следующий «кусок»
+                    cookie = resp.Controls
+                        .OfType<PageResultResponseControl>()
+                        .FirstOrDefault()?.Cookie
+                        ?? Array.Empty<byte>();
 
-                _logger.LogInformation(
-                  "Fetched page: {Count} entries; total so far: {Total}",
-                  response.Entries.Count,
-                  employees.Count);
+                    _logger.LogInformation(
+                        "Segment {Segment}: loaded {Count} entries, total so far: {Total}",
+                        segment, resp.Entries.Count, employees.Count);
 
-                // если LDAP сервер жалуется на слишком быстрые запросы — можно раскомментировать:
-                // System.Threading.Thread.Sleep(100);
-
-            } while (cookie.Length > 0);
+                } while (cookie.Length > 0);
+            }
 
             _logger.LogInformation("🎯 Total records retrieved from LDAP: {Count}", employees.Count);
             return employees;
