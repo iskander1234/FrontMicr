@@ -37,59 +37,63 @@ namespace DinDin.Services
 
         public List<LDAPEmployee> GetLdapEmployees()
         {
-            // Подключение к LDAP
             _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
             var credentials = new NetworkCredential(_bindDn, _password);
             var identifier = new LdapDirectoryIdentifier(_server, _port);
             using var connection = new LdapConnection(identifier, credentials, AuthType.Negotiate);
             connection.SessionOptions.ProtocolVersion = 3;
-            connection.Bind();
-            _logger.LogInformation("LDAP bind successful");
+
+            try
+            {
+                connection.Bind();
+                _logger.LogInformation("LDAP bind successful");
+            }
+            catch (LdapException ex)
+            {
+                _logger.LogError(ex, "LDAP bind failed: {Message}", ex.Message);
+                throw;
+            }
 
             var employees = new List<LDAPEmployee>();
             const int pageSize = 1000;
-            const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            byte[] cookie = Array.Empty<byte>();
 
-            foreach (var segment in segments)
+            // Сортировка для стабильной пагинации
+            var sortKey = new SortKey("sAMAccountName");
+            var sortControl = new SortRequestControl(new[] { sortKey });
+            var pageControl = new PageResultRequestControl(pageSize);
+
+            do
             {
-                var segmentFilter = $"(&{_filter}(sAMAccountName={segment}*))";
-                _logger.LogInformation("Segment filter: {Filter}", segmentFilter);
+                var request = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
+                request.Controls.Add(sortControl);
 
-                byte[] cookie = Array.Empty<byte>();
-                var pageControl = new PageResultRequestControl(pageSize);
+                pageControl.Cookie = cookie;
+                request.Controls.Add(pageControl);
 
-                do
+                var response = (SearchResponse)connection.SendRequest(request);
+
+                foreach (SearchResultEntry entry in response.Entries)
                 {
-                    var searchRequest = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
-
-                    pageControl.Cookie = cookie;
-                    searchRequest.Controls.Add(pageControl);
-
-                    var response = (SearchResponse)connection.SendRequest(searchRequest);
-
-                    foreach (SearchResultEntry entry in response.Entries)
+                    try
                     {
-                        try
-                        {
-                            employees.Add(new LDAPEmployee(entry));
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to parse entry in segment {Segment}", segment);
-                        }
+                        employees.Add(new LDAPEmployee(entry));
                     }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse LDAP entry");
+                    }
+                }
 
-                    cookie = response.Controls
-                        .OfType<PageResultResponseControl>()
-                        .FirstOrDefault()?
-                        .Cookie
-                        ?? Array.Empty<byte>();
+                cookie = response.Controls
+                    .OfType<PageResultResponseControl>()
+                    .FirstOrDefault()?
+                    .Cookie
+                    ?? Array.Empty<byte>();
 
-                    _logger.LogInformation("Segment {Segment}: loaded {Count} entries, total so far: {Total}",
-                        segment, response.Entries.Count, employees.Count);
+                _logger.LogInformation("Loaded {Count} entries, total so far: {Total}", response.Entries.Count, employees.Count);
 
-                } while (cookie.Length > 0);
-            }
+            } while (cookie.Length > 0);
 
             _logger.LogInformation("🎯 Total records retrieved from LDAP: {Count}", employees.Count);
             return employees;
