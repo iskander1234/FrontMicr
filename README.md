@@ -63,9 +63,8 @@ namespace DinDin.Services
                 page++;
                 var request = new SearchRequest(_searchBase, _filter, SearchScope.Subtree, _attributes);
 
-                // Сортировка для корректной постраничной выдачи
-                var sortControl = new SortRequestControl();
-                sortControl.SortKeys.Add(new SortKey("sAMAccountName"));
+                // Сортировка для корректной постраничной выдачи по атрибуту
+                var sortControl = new SortRequestControl("sAMAccountName");
                 request.Controls.Add(sortControl);
 
                 // Пагинация
