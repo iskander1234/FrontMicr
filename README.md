@@ -1,315 +1,107 @@
-"C:\Program Files\JetBrains\JetBrains Rider 2025.1.2\plugins\dpa\DotFiles\JetBrains.DPA.Runner.exe" --handle=4648 --backend-pid=8868 --etw-collect-flags=67108622 --detach-event-name=dpa.detach.8868.88 --refresh-interval=1 -- C:/BPM/Leshan/1/DinDin/bin/Debug/net8.0/DinDin.exe
-warn: Microsoft.EntityFrameworkCore.Model.Validation[10400]
-      Sensitive data logging is enabled. Log entries and exception messages may include sensitive application data; this mode should only be enabled during development.
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (144ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      CREATE TABLE "public"."DepartmentsTempc0678b81" AS TABLE "public"."Departments" WITH NO DATA;
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (26ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempc0678b81") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (19ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      DROP TABLE IF EXISTS "public"."DepartmentsTempc0678b81"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (10ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      CREATE TABLE "public"."DepartmentsTempd93bb38d" AS TABLE "public"."Departments" WITH NO DATA;
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (26ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      INSERT INTO "public"."Departments" ("id", "actual", "manager_id", "name", "parent_id") (SELECT "id", "actual", "manager_id", "name", "parent_id" FROM "public"."DepartmentsTempd93bb38d") ON CONFLICT ("id") DO UPDATE SET "actual" = EXCLUDED."actual", "manager_id" = EXCLUDED."manager_id", "name" = EXCLUDED."name", "parent_id" = EXCLUDED."parent_id" RETURNING "public"."Departments"."id", "public"."Departments"."actual", "public"."Departments"."manager_id", "public"."Departments"."name", "public"."Departments"."parent_id"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (2ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      DROP TABLE IF EXISTS "public"."DepartmentsTempd93bb38d"
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (16ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      SELECT e.id, e.dep_id, e.dep_name, e.disabled, e.is_filial, e.is_manager, e.local_phone, e.login, e.login_ad, e.mail, e.manager_tab_number, e.mobile_phone, e.name, e.parent_dep_id, e.parent_dep_name, e.position, e.status_code, e.status_description, e.tab_number
-      FROM public."Employees" AS e
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      LDAP Config loaded: Server=172.31.0.252, Port=389, BindDN=gnpfadm@enpf.kz, SearchBase=dc=enpf,dc=kz
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Connecting to LDAP server 172.31.0.252:389...
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      LDAP bind successful
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=0*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 0: loaded 0 entries, total so far: 0
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=1*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 1: loaded 3 entries, total so far: 3
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=2*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 2: loaded 0 entries, total so far: 3
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=3*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 3: loaded 2 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=4*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 4: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=5*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 5: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=6*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 6: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=7*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 7: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=8*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 8: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=9*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment 9: loaded 0 entries, total so far: 5
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=A*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment A: loaded 1000 entries, total so far: 1005
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=B*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment B: loaded 180 entries, total so far: 1185
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=C*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment C: loaded 10 entries, total so far: 1195
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=D*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment D: loaded 239 entries, total so far: 1434
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=E*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment E: loaded 158 entries, total so far: 1592
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=F*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment F: loaded 29 entries, total so far: 1621
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=G*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment G: loaded 341 entries, total so far: 1962
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=H*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment H: loaded 36 entries, total so far: 1998
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=I*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment I: loaded 73 entries, total so far: 2071
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=J*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment J: loaded 11 entries, total so far: 2082
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=K*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment K: loaded 178 entries, total so far: 2260
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=L*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment L: loaded 99 entries, total so far: 2359
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=M*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment M: loaded 324 entries, total so far: 2683
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=N*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment N: loaded 246 entries, total so far: 2929
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=O*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment O: loaded 73 entries, total so far: 3002
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=P*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment P: loaded 22 entries, total so far: 3024
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=Q*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment Q: loaded 3 entries, total so far: 3027
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=R*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment R: loaded 144 entries, total so far: 3171
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=S*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment S: loaded 367 entries, total so far: 3538
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=T*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment T: loaded 109 entries, total so far: 3647
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=U*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment U: loaded 37 entries, total so far: 3684
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=V*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment V: loaded 38 entries, total so far: 3722
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=W*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment W: loaded 0 entries, total so far: 3722
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=X*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment X: loaded 1 entries, total so far: 3723
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=Y*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment Y: loaded 95 entries, total so far: 3818
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=Z*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment Z: loaded 274 entries, total so far: 4092
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=a*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment a: loaded 1000 entries, total so far: 5092
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=b*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment b: loaded 180 entries, total so far: 5272
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=c*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment c: loaded 10 entries, total so far: 5282
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=d*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment d: loaded 239 entries, total so far: 5521
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=e*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment e: loaded 158 entries, total so far: 5679
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=f*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment f: loaded 29 entries, total so far: 5708
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=g*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment g: loaded 341 entries, total so far: 6049
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=h*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment h: loaded 36 entries, total so far: 6085
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=i*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment i: loaded 73 entries, total so far: 6158
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=j*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment j: loaded 11 entries, total so far: 6169
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=k*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment k: loaded 178 entries, total so far: 6347
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=l*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment l: loaded 99 entries, total so far: 6446
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=m*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment m: loaded 324 entries, total so far: 6770
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=n*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment n: loaded 246 entries, total so far: 7016
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=o*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment o: loaded 73 entries, total so far: 7089
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=p*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment p: loaded 22 entries, total so far: 7111
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=q*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment q: loaded 3 entries, total so far: 7114
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=r*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment r: loaded 144 entries, total so far: 7258
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=s*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment s: loaded 367 entries, total so far: 7625
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=t*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment t: loaded 109 entries, total so far: 7734
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=u*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment u: loaded 37 entries, total so far: 7771
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=v*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment v: loaded 38 entries, total so far: 7809
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=w*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment w: loaded 0 entries, total so far: 7809
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=x*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment x: loaded 1 entries, total so far: 7810
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=y*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment y: loaded 95 entries, total so far: 7905
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment filter: (&(&(objectClass=user)(objectCategory=PERSON))(sAMAccountName=z*))
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      Segment z: loaded 274 entries, total so far: 8179
-info: DinDin.Services.LdapEmployeeSyncService[0]
-      ?? Total records retrieved from LDAP: 8179
-info: Microsoft.EntityFrameworkCore.Database.Command[20101]
-      Executed DbCommand (44ms) [Parameters=[], CommandType='Text', CommandTimeout='30']
-      TRUNCATE TABLE "ldap_employees" RESTART IDENTITY
-Unhandled exception. Npgsql.PostgresException (0x80004005): 23505: повторяющееся значение ключа нарушает ограничение уникальности "ldapemployees_pk"
+using System;
+using System.Collections.Generic;
+// Ensure you have installed the NuGet package:
+// <PackageReference Include="System.DirectoryServices.Protocols" Version="8.0.0" />
+using System.DirectoryServices.Protocols;
+using System.Linq;
+using System.Net;
+using DinDin.Models;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
-DETAIL: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
-   at Npgsql.Internal.NpgsqlConnector.ReadMessageLong(Boolean async, DataRowLoadingMode dataRowLoadingMode, Boolean readingNotifications, Boolean isReadingPrependedMessage)
-   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
-   at Npgsql.NpgsqlBinaryImporter.Complete(Boolean async, CancellationToken cancellationToken)
-   at EFCore.BulkExtensions.SqlAdapters.PostgreSql.PostgreSqlAdapter.InsertAsync[T](DbContext context, IEnumerable`1 entities, TableInfo tableInfo, Action`1 progress, Boolean isAsync, CancellationToken cancellationToken)
-   at EFCore.BulkExtensions.SqlAdapters.PostgreSql.PostgreSqlAdapter.InsertAsync[T](DbContext context, IEnumerable`1 entities, TableInfo tableInfo, Action`1 progress, Boolean isAsync, CancellationToken cancellationToken)
-   at EFCore.BulkExtensions.SqlAdapters.PostgreSql.PostgreSqlAdapter.InsertAsync[T](DbContext context, Type type, IEnumerable`1 entities, TableInfo tableInfo, Action`1 progress, CancellationToken cancellationToken)
-   at EFCore.BulkExtensions.SqlBulkOperation.InsertAsync[T](DbContext context, Type type, IEnumerable`1 entities, TableInfo tableInfo, Action`1 progress, CancellationToken cancellationToken)
-   at EFCore.BulkExtensions.DbContextBulkTransaction.ExecuteAsync[T](DbContext context, Type type, IEnumerable`1 entities, OperationType operationType, BulkConfig bulkConfig, Action`1 progress, CancellationToken cancellationToken)
-   at DinDin.Repositories.LDAPUsersRepository.ReplaceAllLdapEmployees(List`1 employees) in C:\BPM\Leshan\1\DinDin\Repositories\LDAPUsersRepository.cs:line 31
-   at DinDin.Program.SyncLdap(IServiceProvider provider) in C:\BPM\Leshan\1\DinDin\Program.cs:line 143
-   at DinDin.Program.StartData(ServiceProvider serviceProvider) in C:\BPM\Leshan\1\DinDin\Program.cs:line 77
-   at DinDin.Program.Main() in C:\BPM\Leshan\1\DinDin\Program.cs:line 25
-   at DinDin.Program.<Main>()
-  Exception data:
-    Severity: ОШИБКА
-    SqlState: 23505
-    MessageText: повторяющееся значение ключа нарушает ограничение уникальности "ldapemployees_pk"
-    Detail: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
-    Where: COPY ldap_employees, строка 4093
-    SchemaName: public
-    TableName: ldap_employees
-    ConstraintName: ldapemployees_pk
-    File: nbtinsert.c
-    Line: 673
-    Routine: _bt_check_unique
+namespace DinDin.Services
+{
+    public class LdapEmployeeSyncService
+    {
+        private readonly ILogger<LdapEmployeeSyncService> _logger;
+        private readonly string _server;
+        private readonly int _port;
+        private readonly string _bindDn;
+        private readonly string _password;
+        private readonly string _searchBase;
+        private readonly string _filter;
+        private readonly string[] _attributes;
 
-Process finished with exit code -532,462,766.
+        public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
+        {
+            _logger = logger;
+            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
+            _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
+            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
+            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
+            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
+            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
+            _attributes = configuration.GetSection("LDAPConfig:Filters:UserPerson:Keys").Get<string[]>() ?? Array.Empty<string>();
 
+            _logger.LogInformation("LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}",
+                _server, _port, _bindDn, _searchBase);
+        }
+
+        public List<LDAPEmployee> GetLdapEmployees()
+        {
+            _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
+            var credentials = new NetworkCredential(_bindDn, _password);
+            var identifier = new LdapDirectoryIdentifier(_server, _port);
+            using var connection = new LdapConnection(identifier, credentials, AuthType.Negotiate);
+            connection.SessionOptions.ProtocolVersion = 3;
+            connection.Bind();
+            _logger.LogInformation("LDAP bind successful");
+
+            var employees = new List<LDAPEmployee>();
+            // Уникальность по полю Login
+            var seenLogins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            const int pageSize = 1000;
+            byte[] cookie = Array.Empty<byte>();
+
+            // Сегментация по префиксу sAMAccountName: цифры, латиница верхнего и нижнего регистра
+            const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+            foreach (var segment in segments)
+            {
+                var segmentFilter = $"(&{_filter}(sAMAccountName={segment}*))";
+                _logger.LogInformation("Segment filter: {Filter}", segmentFilter);
+
+                cookie = Array.Empty<byte>();
+                var pageControl = new PageResultRequestControl(pageSize);
+
+                do
+                {
+                    var request = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
+                    pageControl.Cookie = cookie;
+                    request.Controls.Add(pageControl);
+
+                    var response = (SearchResponse)connection.SendRequest(request);
+
+                    foreach (SearchResultEntry entry in response.Entries)
+                    {
+                        try
+                        {
+                            employees.Add(new LDAPEmployee(entry));
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse entry for segment '{Segment}'", segment);
+                        }
+                    }
+
+                    cookie = response.Controls
+                        .OfType<PageResultResponseControl>()
+                        .FirstOrDefault()?
+                        .Cookie
+                        ?? Array.Empty<byte>();
+
+                    _logger.LogInformation("Segment {Segment}: loaded {Count} entries, total so far: {Total}",
+                        segment, response.Entries.Count, employees.Count);
+
+                } while (cookie.Length > 0);
+            }
+
+            // Удаляем дубликаты по логину
+            _logger.LogInformation("🔄 Removing duplicates by Login... original count: {OrigCount}", employees.Count);
+            var uniqueEmployees = employees
+                .Where(e => !string.IsNullOrEmpty(e.Login) && seenLogins.Add(e.Login))
+                .ToList();
+            _logger.LogInformation("✅ Count after deduplication: {UniqueCount}", uniqueEmployees.Count);
+            _logger.LogInformation("🎯 Total unique records retrieved from LDAP: {Count}", uniqueEmployees.Count);
+            return uniqueEmployees;
+        }
