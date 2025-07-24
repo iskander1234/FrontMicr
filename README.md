@@ -1,98 +1,144 @@
-using System;
-using System.Collections.Generic;
-using System.DirectoryServices.Protocols;
-using System.Linq;
-using System.Net;
 using DinDin.Models;
+using DinDin.Models.Dto;
+using DinDin.Repositories;
+using DinDin.Services;
+using Mapster;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using System;
 using Microsoft.Extensions.Logging;
 
-namespace DinDin.Services
+namespace DinDin;
+
+class Program
 {
-    public class LdapEmployeeSyncService
+    private static IConfiguration Configuration;
+    private static List<Department> _deps = new List<Department>();
+
+    static async Task Main()
     {
-        private readonly ILogger<LdapEmployeeSyncService> _logger;
-        private readonly string _server;
-        private readonly int _port;
-        private readonly string _bindDn;
-        private readonly string _password;
-        private readonly string _searchBase;
-        private readonly string _filter;
-        private readonly string[] _attributes;
+        MapsterConfig();
+        Configuration = BuildConfiguration();
+        var serviceProvider = ConfigureServices(Configuration);
 
-        public LdapEmployeeSyncService(IConfiguration configuration, ILogger<LdapEmployeeSyncService> logger)
+        await StartData(serviceProvider);
+    }
+
+    private static async Task StartData(ServiceProvider serviceProvider)
+    {
+        var oneCService = serviceProvider.GetRequiredService<OneCService>();
+
+        var deps = (await oneCService.GetDepartments()).Adapt<List<Department>>();
+        await serviceProvider.GetRequiredService<DepartmentRepository>().Update(deps);
+        //PopulateParentId(deps);
+
+        var employees = (await oneCService.GetEmployees()).Adapt<List<Employee>>();
+
+        foreach (var employee in employees)
         {
-            _logger = logger;
-            _server = configuration["LDAPConfig:Server"] ?? throw new ArgumentNullException("Server");
-            _port = int.TryParse(configuration["LDAPConfig:Port"], out var port) ? port : 389;
-            _bindDn = configuration["LDAPConfig:BindDN"] ?? throw new ArgumentNullException("BindDN");
-            _password = configuration["LDAPConfig:Password"] ?? throw new ArgumentNullException("Password");
-            _searchBase = configuration["LDAPConfig:SearchBase"] ?? throw new ArgumentNullException("SearchBase");
-            _filter = configuration["LDAPConfig:Filters:UserPerson:Code"] ?? "(objectClass=user)";
-            _attributes = configuration
-                .GetSection("LDAPConfig:Filters:UserPerson:Keys")
-                .Get<string[]>() ?? Array.Empty<string>();
+            var e = employee;
+            if (e.Name.Contains("Аристом"))
+                e = employee;
 
-            _logger.LogInformation(
-                "LDAP Config loaded: Server={Server}, Port={Port}, BindDN={BindDN}, SearchBase={SearchBase}",
-                _server, _port, _bindDn, _searchBase);
-        }
-
-        public List<LDAPEmployee> GetLdapEmployees()
-        {
-            _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
-            var creds = new NetworkCredential(_bindDn, _password);
-            var id = new LdapDirectoryIdentifier(_server, _port);
-            using var conn = new LdapConnection(id, creds, AuthType.Negotiate);
-            conn.SessionOptions.ProtocolVersion = 3;
-            conn.Bind();
-            _logger.LogInformation("LDAP bind successful");
-
-            var employees = new List<LDAPEmployee>();
-            const int pageSize = 1000;
-            const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-            foreach (var segment in segments)
+            foreach (var branch in deps)
             {
-                var segmentFilter = $"(&{_filter}(sAMAccountName={segment}*))";
-                _logger.LogInformation("Segment filter: {Filter}", segmentFilter);
-
-                byte[] cookie = Array.Empty<byte>();
-                var pageControl = new PageResultRequestControl(pageSize);
-
-                do
+                foreach (var department in branch.InverseParent)
                 {
-                    var req = new SearchRequest(_searchBase, segmentFilter, SearchScope.Subtree, _attributes);
-                    pageControl.Cookie = cookie;
-                    req.Controls.Add(pageControl);
-
-                    var resp = (SearchResponse)conn.SendRequest(req);
-                    foreach (SearchResultEntry entry in resp.Entries)
+                    if (employee.DepId == department.Id)
                     {
-                        try
-                        {
-                            employees.Add(new LDAPEmployee(entry));
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to parse entry in segment {Segment}", segment);
-                        }
+                        employee.ParentDepId = department.Id;
+                        employee.ParentDepName = department.Name;
+                        break;
                     }
 
-                    cookie = resp.Controls
-                        .OfType<PageResultResponseControl>()
-                        .FirstOrDefault()?.Cookie
-                        ?? Array.Empty<byte>();
+                    foreach (var division in department.InverseParent)
+                    {
+                        if (employee.DepId == division.Id)
+                        {
+                            if (branch.Id == "01.001000")
+                            {
+                                employee.ParentDepId = department.Id;
+                                employee.ParentDepName = department.Name;
+                                break;
+                            }
 
-                    _logger.LogInformation(
-                        "Segment {Segment}: loaded {Count} entries, total so far: {Total}",
-                        segment, resp.Entries.Count, employees.Count);
-
-                } while (cookie.Length > 0);
+                            employee.ParentDepId = branch.Id;
+                            employee.ParentDepName = branch.Name;
+                            break;
+                        }
+                    }
+                }
             }
+        }
 
-            _logger.LogInformation("🎯 Total records retrieved from LDAP: {Count}", employees.Count);
-            return employees;
+        await serviceProvider.GetRequiredService<EmployeeRepository>().Update2(employees);
+        
+        await SyncLdap(serviceProvider);
+    }
+
+    private static void MapsterConfig()
+    {
+        TypeAdapterConfig<EmployeeDTO, Employee>
+            .NewConfig()
+            .Map(dest => dest.IsFilial, src => src.IsFilial == "1")
+            .Map(dest => dest.IsManager, src => src.IsManager == "1")
+            .Map(dest => dest.Disabled, src => src.Disabled == "1")
+            .Map(dest => dest.ManagerTabNumber, src => src.ManagerId);
+
+        TypeAdapterConfig<DepartmentDTO, Department>
+            .NewConfig()
+            .Map(dest => dest.InverseParent, src => src.Children);
+    }
+
+    private static ServiceProvider ConfigureServices(IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("BpmCore") ?? throw new Exception("ConnectionString BpmCore was not found");
+
+        return new ServiceCollection()
+            .AddLogging(builder =>
+            {
+                builder.AddConsole(); // Включаем логи в консоль
+                builder.SetMinimumLevel(LogLevel.Information);
+            })
+            .AddSingleton<IConfiguration>(configuration)
+            .AddDbContext<BpmcoreContext>(options => options.UseNpgsql(connectionString))
+            .AddSingleton<OneCService>()
+            .AddSingleton<DepartmentRepository>()
+            .AddSingleton<EmployeeRepository>()
+            .AddSingleton<LdapEmployeeSyncService>()   // 👈 Добавь эту строку
+            .AddSingleton<LDAPUsersRepository>()       // 👈 И эту
+            .BuildServiceProvider();
+    }
+
+    private static IConfiguration BuildConfiguration()
+    {
+        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Production";
+
+        return new ConfigurationBuilder()
+            .SetBasePath(Directory.GetCurrentDirectory())
+            .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+            .Build();
+    }
+
+    private static void PopulateParentId(List<Department> departments, string? parentId = null)
+    {
+        foreach (var department in departments)
+        {
+            _deps.Add(department);
+            PopulateParentId(department.InverseParent, department.Id);
         }
     }
+    
+
+    
+    private static async Task UpdateLdapEmployees(ServiceProvider serviceProvider, IConfiguration configuration)
+    {
+        var ldapEmployees = new UserLDAPService(configuration).GetLDAPEmployees();
+
+        await serviceProvider
+            .GetRequiredService<LDAPUsersRepository>()
+            .UpdateByKey(ldapEmployees);
+    } 
+    
 }
