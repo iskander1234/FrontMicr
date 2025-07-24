@@ -40,7 +40,6 @@ namespace DinDin.Services
 
         public List<LDAPEmployee> GetLdapEmployees()
         {
-            // Настройка подключения LDAP
             _logger.LogInformation("Connecting to LDAP server {Server}:{Port}...", _server, _port);
             var creds = new NetworkCredential(_bindDn, _password);
             var id = new LdapDirectoryIdentifier(_server, _port);
@@ -51,7 +50,6 @@ namespace DinDin.Services
 
             var employees = new List<LDAPEmployee>();
             const int pageSize = 1000;
-            // Сегменты по первой букве/цифре sAMAccountName
             const string segments = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
             foreach (var segment in segments)
@@ -81,7 +79,6 @@ namespace DinDin.Services
                         }
                     }
 
-                    // берём следующий «кусок»
                     cookie = resp.Controls
                         .OfType<PageResultResponseControl>()
                         .FirstOrDefault()?.Cookie
