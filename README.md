@@ -1,31 +1,41 @@
-public class RemoveDelegationCommandHandler
-    : IRequestHandler<RemoveDelegationCommand, BaseResponseDto<Guid>>
+using AutoMapper;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using BpmBaseApi.Shared.Responses.Reference;
+using MediatR;
+using Microsoft.Extensions.Caching.Memory;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
+
+namespace BpmBaseApi.Application.QueryHandlers.Process
 {
-    private readonly IUnitOfWork _uow;
-
-    public RemoveDelegationCommandHandler(IUnitOfWork uow) => _uow = uow;
-
-    public async Task<BaseResponseDto<Guid>> Handle(
-        RemoveDelegationCommand command,
-        CancellationToken cancellationToken)
+    public class GetUserTasksQueryHandler(
+        IMapper mapper,
+        IUnitOfWork unitOfWork,
+        IMemoryCache cache
+        ) : IRequestHandler<GetUserTasksQuery, BaseResponseDto<List<GetUserTasksResponse>>>
     {
-        // 1) Ищем существующую делегацию
-        var list = await _uow.DelegationRepository
-            .GetByFilterListAsync(cancellationToken, d =>
-                d.PrincipalUserCode == command.PrincipalCode &&
-                d.DeputyUserCode    == command.DeputyCode);
+        public async Task<BaseResponseDto<List<GetUserTasksResponse>>> Handle(GetUserTasksQuery query, CancellationToken cancellationToken)
+        {
+            string cacheKey = $"tasks:{query.UserCode}";
 
-        var entity = list.FirstOrDefault();
-        if (entity == null)
-            throw new HandlerException(
-                "Делегация не найдена",
-                ErrorCodesEnum.Business);
+            var tasksCache = cache.Get<List<GetUserTasksResponse>>(cacheKey);
 
-        // 2) Удаляем запись напрямую
-        await _uow.DelegationRepository.DeleteByIdAsync(entity.Id, cancellationToken);
-        await _uow.CommitAsync(cancellationToken);
+            if (tasksCache == null)
+            {
+                var tasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
+                    cancellationToken,
+                    p => p.AssigneeCode == query.UserCode && p.Status == "Pending");
 
-        // 3) Возвращаем Id удалённой записи
-        return new BaseResponseDto<Guid> { Data = entity.Id };
+                var responseList = mapper.Map<List<GetUserTasksResponse>>(tasks);
+
+                cache.Set(cacheKey, responseList, TimeSpan.FromHours(1));
+
+                return new BaseResponseDto<List<GetUserTasksResponse>> { Data = responseList };
+            }
+
+            return new BaseResponseDto<List<GetUserTasksResponse>> { Data = tasksCache };
+        }
     }
 }
