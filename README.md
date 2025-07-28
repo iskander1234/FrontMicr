@@ -1,81 +1,92 @@
-using BpmBaseApi.Domain.Entities.Event.AccessControl;
+// Domain/Entities/Process/DelegationEntity.cs
+using System;
 using BpmBaseApi.Domain.SeedWork;
 
-namespace BpmBaseApi.Domain.Entities.AccessControl
+namespace BpmBaseApi.Domain.Entities.Process
 {
-    public class UserEntity : BaseJournaledEntity
+    /// <summary>
+    /// Делегирование: кто замещает кого
+    /// </summary>
+    public class DelegationEntity : BaseJournaledEntity
     {
-        /// <summary>
-        /// Код пользователя
-        /// </summary>
-        public string UserCode { get; private set; }
+        /// <summary>Код пользователя, которого замещают</summary>
+        public string PrincipalUserCode { get; private set; }
 
-        /// <summary>
-        /// Имя пользователя
-        /// </summary>
-        public string UserName { get; private set; }
+        /// <summary>Имя пользователя, которого замещают</summary>
+        public string PrincipalUserName { get; private set; }
 
-        /// <summary>
-        /// Коллекция ролей, назначенных пользователю.
-        /// </summary>
-        public virtual List<UserRoleEntity> UserRoles { get; private set; } = [];
+        /// <summary>Код заместителя</summary>
+        public string DeputyUserCode { get; private set; }
 
-        /// <summary>
-        /// Коллекция групп, в которых состоит пользователь.
-        /// </summary>
-        public virtual List<UserGroupEntity> UserGroups { get; private set; } = [];
+        /// <summary>Имя заместителя</summary>
+        public string DeputyUserName { get; private set; }
 
-        #region Apply
-
-        public void Apply(UserCreatedEvent @event)
+        // Конструктор и Apply-методы остаются как в примере выше
+        public DelegationEntity(string principalCode, string principalName, string deputyCode, string deputyName)
         {
             Id = Guid.NewGuid();
-            @event.EntityId = Id;
-            UserCode = @event.UserCode;
-            UserName = @event.UserName;
+            PrincipalUserCode  = principalCode;
+            PrincipalUserName  = principalName;
+            DeputyUserCode     = deputyCode;
+            DeputyUserName     = deputyName;
         }
-
-        #endregion
-
     }
 }
-using BpmBaseApi.Domain.Entities.AccessControl;
+// Persistence/Configurations/Entities/Process/DelegationConfiguration.cs
+using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Persistence.Configurations.SeedWork;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
-namespace BpmBaseApi.Persistence.Configurations.Entities.AccessControl
+namespace BpmBaseApi.Persistence.Configurations.Entities.Process
 {
-    public class UserConfiguration : BaseEntityConfiguration<UserEntity>
+    /// <summary>
+    /// Настройка таблицы Delegations для сущности DelegationEntity
+    /// </summary>
+    public class DelegationConfiguration : BaseEntityConfiguration<DelegationEntity>
     {
-        public override void Configure(EntityTypeBuilder<UserEntity> builder)
+        public override void Configure(EntityTypeBuilder<DelegationEntity> builder)
         {
-            builder.ToTable("User", t => t.HasComment("Данные пользователя"));
+            // имя таблицы и комментарий
+            builder.ToTable("Delegations", t => t.HasComment("Таблица заместителей"));
 
-            builder.Property(p => p.UserCode)
+            // ключевой столбец Id приходит из BaseJournaledEntity
+
+            // PrincipalUserCode — обязательное поле
+            builder.Property(p => p.PrincipalUserCode)
                    .IsRequired()
-                   .HasComment("Код пользователя");
+                   .HasMaxLength(64)
+                   .HasComment("Код пользователя, которого замещают");
 
-            builder.HasIndex(p => p.UserCode).IsUnique();
-            builder.HasAlternateKey(p => p.UserCode);
+            // PrincipalUserName — не-null, можно хранить до 256 символов
+            builder.Property(p => p.PrincipalUserName)
+                   .IsRequired()
+                   .HasMaxLength(256)
+                   .HasComment("Имя пользователя, которого замещают");
 
-            builder.Property(p => p.UserName)
-                   .HasComment("Имя пользователя");
+            // DeputyUserCode — обязательное поле
+            builder.Property(p => p.DeputyUserCode)
+                   .IsRequired()
+                   .HasMaxLength(64)
+                   .HasComment("Код заместителя");
 
-            builder.HasMany(p => p.UserRoles)
-                   .WithOne(ur => ur.User)
-                   .HasForeignKey(ur => ur.UserCode)
-                   .HasPrincipalKey(u => u.UserCode)
-                   .OnDelete(DeleteBehavior.Cascade);
+            // DeputyUserName — не-null, можно хранить до 256 символов
+            builder.Property(p => p.DeputyUserName)
+                   .IsRequired()
+                   .HasMaxLength(256)
+                   .HasComment("Имя заместителя");
 
-            builder.HasMany(p => p.UserGroups)
-                   .WithOne(ug => ug.User)
-                   .HasForeignKey(ug => ug.UserCode)
-                   .HasPrincipalKey(u => u.UserCode)
-                   .OnDelete(DeleteBehavior.Cascade);
+            // Уникальный индекс, чтобы не дублировать одну и ту же пару
+            builder.HasIndex(p => new { p.PrincipalUserCode, p.DeputyUserCode })
+                   .IsUnique()
+                   .HasDatabaseName("UX_Delegations_Principal_Deputy");
 
-            builder.Navigation(p => p.UserRoles).AutoInclude();
-            builder.Navigation(p => p.UserGroups).AutoInclude();
+            base.Configure(builder);
         }
     }
 }
+
+
+
+dotnet ef migrations add AddDelegationsTable --project BpmBaseApi.Persistence --startup-project BpmBaseApi.WebAPI
+dotnet ef database update --project BpmBaseApi.Persistence --startup-project BpmBaseApi.WebAPI
