@@ -1,51 +1,47 @@
-// Domain/Entities/Process/DelegationEntity.cs
-using System;
 using BpmBaseApi.Domain.Entities.Event.Process;
-using BpmBaseApi.Domain.SeedWork;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using MediatR;
 
-namespace BpmBaseApi.Domain.Entities.Process
+namespace BpmBaseApi.Application.CommandHandlers.Process;
+
+public class RemoveDelegationCommandHandler
+    : IRequestHandler<RemoveDelegationCommand, BaseResponseDto<Guid>>
 {
-    public class DelegationEntity : BaseJournaledEntity
+    private readonly IUnitOfWork _uow;
+
+    public RemoveDelegationCommandHandler(IUnitOfWork uow) => _uow = uow;
+
+    public async Task<BaseResponseDto<Guid>> Handle(
+        RemoveDelegationCommand command,
+        CancellationToken cancellationToken)
     {
-        public string PrincipalUserCode { get; private set; }
-        public string PrincipalUserName { get; private set; }
-        public string DeputyUserCode     { get; private set; }
-        public string DeputyUserName     { get; private set; }
+        // 1. Находим существующую делегацию
+        var list = await _uow.DelegationRepository
+            .GetByFilterListAsync(cancellationToken, d =>
+                d.PrincipalUserCode == command.PrincipalCode &&
+                d.DeputyUserCode    == command.DeputyCode);
 
-        // EF + репозиторий по new() требуют public parameterless
-        public DelegationEntity() { }
+        var entity = list.FirstOrDefault();
+        if (entity == null)
+            throw new HandlerException(
+                "Делегация не найдена",
+                ErrorCodesEnum.Business);
 
-        // Бизнес-конструктор
-        public DelegationEntity(
-            string principalCode,
-            string principalName,
-            string deputyCode,
-            string deputyName)
+        // 2. Формируем событие удаления
+        var evt = new ProcessDelegationRemovedEvent
         {
-            Id                 = Guid.NewGuid();
-            PrincipalUserCode  = principalCode;
-            PrincipalUserName  = principalName;
-            DeputyUserCode     = deputyCode;
-            DeputyUserName     = deputyName;
-        }
+            EntityId           = entity.Id,
+            PrincipalUserCode  = command.PrincipalCode,
+            DeputyUserCode     = command.DeputyCode
+        };
 
-        #region Apply
+        // 3. Публикуем и удаляем
+        await _uow.DelegationRepository.RaiseEvent(evt, cancellationToken);
+        await _uow.CommitAsync(cancellationToken);
 
-        // Этот метод будет вызван внутри RaiseEvent(evt)
-        public void Apply(DelegationCreatedEvent @event)
-        {
-            // Заполняем все четыре поля из события
-            Id                 = @event.EntityId;
-            PrincipalUserCode  = @event.PrincipalUserCode;
-            PrincipalUserName  = @event.PrincipalUserName;
-            DeputyUserCode     = @event.DeputyUserCode;
-            DeputyUserName     = @event.DeputyUserName;
-        }
-
-        // При удалении делегации можно ничего не делать —
-        // репозиторий сам выполнит DeleteByIdAsync
-        public void Apply(DelegationRemovedEvent @event) { }
-
-        #endregion
+        return new BaseResponseDto<Guid> { Data = evt.EntityId };
     }
 }
