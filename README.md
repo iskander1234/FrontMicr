@@ -1,28 +1,18 @@
-using System.Linq.Expressions;
-using BpmBaseApi.Domain.SeedWork;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using BpmBaseApi.Domain.Entities.Process;
 
 namespace BpmBaseApi.Persistence.Interfaces
 {
-    public interface IJournaledGenericRepository<TEntity>
+    /// <summary>
+    /// Репозиторий для сущности делегаций, расширяющий общий CRUD из IJournaledGenericRepository
+    /// </summary>
+    public interface IDelegationRepository : IJournaledGenericRepository<DelegationEntity>
     {
-        ValueTask<TEntity?> GetByFilterAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
-
         /// <summary>
-        /// Getting entity by Id 
+        /// Возвращает все делегации, где заданный код — заместитель
         /// </summary>
-        /// <param name="id"></param>
-        /// <param name="cancellationToken"></param>
-        /// <returns></returns>
-        ValueTask<List<TEntity>> GetByFilterListAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null, Func<IQueryable<TEntity>, IQueryable<TEntity>>? include = null, Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy = null);
-
-        Task<int> CountAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
-
-        Task<Guid> RaiseEvent(BaseEntityEvent @event, CancellationToken cancellationToken, bool autoCommit = true);
-
-        ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, Guid id);
-
-        Task<decimal> SumAsync(CancellationToken cancellationToken, Expression<Func<TEntity, decimal>> byParam, Expression<Func<TEntity, bool>>? filter = null);
-        Task DeleteByIdAsync(Guid id, CancellationToken cancellationToken);
+        Task<List<DelegationEntity>> GetByDeputyAsync(string deputyCode, CancellationToken ct);
     }
-
 }
