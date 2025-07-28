@@ -1,18 +1,24 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Persistence;
+using BpmBaseApi.Persistence.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
-namespace BpmBaseApi.Persistence.Interfaces
+namespace BpmBaseApi.Persistence.Implementations
 {
-    /// <summary>
-    /// Репозиторий для сущности делегаций, расширяющий общий CRUD из IJournaledGenericRepository
-    /// </summary>
-    public interface IDelegationRepository : IJournaledGenericRepository<DelegationEntity>
+    public class DelegationRepository
+        : JournaledGenericRepository<DelegationEntity>, IDelegationRepository
     {
-        /// <summary>
-        /// Возвращает все делегации, где заданный код — заместитель
-        /// </summary>
-        Task<List<DelegationEntity>> GetByDeputyAsync(string deputyCode, CancellationToken ct);
+        public DelegationRepository(BpmBaseApiDbContext ctx) : base(ctx) { }
+
+        public Task<List<DelegationEntity>> GetByDeputyAsync(
+            string deputyCode,
+            CancellationToken ct) =>
+            _dbSet
+                .Where(d => d.DeputyUserCode.ToLower() == deputyCode.ToLower())
+                .ToListAsync(ct);
     }
 }
