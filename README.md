@@ -1,234 +1,240 @@
-using BpmBaseApi.Domain.Entities.Event.AccessControl;
+// Domain/Entities/Event/Process/DelegationCreatedEvent.cs
 using BpmBaseApi.Domain.SeedWork;
 
-namespace BpmBaseApi.Domain.Entities.AccessControl
+namespace BpmBaseApi.Domain.Entities.Event.Process
 {
-    public class UserEntity : BaseJournaledEntity
+    /// <summary>
+    /// Событие: назначен заместитель
+    /// </summary>
+    public class DelegationCreatedEvent : BaseEntityEvent
     {
-        /// <summary>
-        /// Код пользователя
-        /// </summary>
-        public string UserCode { get; private set; }
+        /// <summary>Код пользователя, которого замещают</summary>
+        public string PrincipalUserCode { get; set; }
 
-        /// <summary>
-        /// Имя пользователя
-        /// </summary>
-        public string UserName { get; private set; }
+        /// <summary>Имя пользователя, которого замещают</summary>
+        public string PrincipalUserName { get; set; }
 
-        /// <summary>
-        /// Коллекция ролей, назначенных пользователю.
-        /// </summary>
-        public virtual List<UserRoleEntity> UserRoles { get; private set; } = [];
+        /// <summary>Код заместителя</summary>
+        public string DeputyUserCode { get; set; }
 
-        /// <summary>
-        /// Коллекция групп, в которых состоит пользователь.
-        /// </summary>
-        public virtual List<UserGroupEntity> UserGroups { get; private set; } = [];
-
-        #region Apply
-
-        public void Apply(UserCreatedEvent @event)
-        {
-            Id = Guid.NewGuid();
-            @event.EntityId = Id;
-            UserCode = @event.UserCode;
-            UserName = @event.UserName;
-        }
-
-        #endregion
-
+        /// <summary>Имя заместителя</summary>
+        public string DeputyUserName { get; set; }
     }
 }
 
+
+// Domain/Entities/Event/Process/DelegationRemovedEvent.cs
 using BpmBaseApi.Domain.SeedWork;
 
-namespace BpmBaseApi.Domain.Entities.Event.AccessControl
+namespace BpmBaseApi.Domain.Entities.Event.Process
 {
-    public class UserCreatedEvent : BaseEntityEvent
+    /// <summary>
+    /// Событие: снят заместитель
+    /// </summary>
+    public class DelegationRemovedEvent : BaseEntityEvent
     {
-        /// <summary>
-        /// Код пользователя
-        /// </summary>
-        public string UserCode { get; set; }
-        /// <summary>
-        /// Имя пользователя
-        /// </summary>
-        public string UserName { get; set; }
+        /// <summary>Код пользователя, которого замещали</summary>
+        public string PrincipalUserCode { get; set; }
+
+        /// <summary>Код заместителя</summary>
+        public string DeputyUserCode { get; set; }
     }
 }
 
-using BpmBaseApi.Shared.Dtos;
+
+
+// Shared/Commands/Process/CreateDelegationCommand.cs
 using MediatR;
+using BpmBaseApi.Shared.Dtos;
 
-namespace BpmBaseApi.Shared.Commands.AccessControl
+namespace BpmBaseApi.Shared.Commands.Process
 {
-    public class CreateUserCommand : IRequest<BaseResponseDto<Guid>>
+    /// <summary>
+    /// Назначить заместителя
+    /// </summary>
+    public class CreateDelegationCommand : IRequest<BaseResponseDto<Guid>>
     {
-        /// <summary>
-        /// Код пользователя
-        /// </summary>
-        public string UserCode { get; set; }
+        /// <summary>Код пользователя, которого замещают</summary>
+        public string PrincipalCode { get; set; }
 
-        /// <summary>
-        /// Имя пользователя
-        /// </summary>
-        public string UserName { get; set; }
+        /// <summary>Код заместителя</summary>
+        public string DeputyCode { get; set; }
     }
 }
 
 
+// Shared/Commands/Process/RemoveDelegationCommand.cs
+using MediatR;
+using BpmBaseApi.Shared.Dtos;
+
+namespace BpmBaseApi.Shared.Commands.Process
+{
+    /// <summary>
+    /// Снять заместителя
+    /// </summary>
+    public class RemoveDelegationCommand : IRequest<BaseResponseDto<Guid>>
+    {
+        /// <summary>Код пользователя, которого замещали</summary>
+        public string PrincipalCode { get; set; }
+
+        /// <summary>Код заместителя</summary>
+        public string DeputyCode { get; set; }
+    }
+}
+
+
+// Application/CommandHandlers/Process/CreateDelegationCommandHandler.cs
 using AutoMapper;
-using BpmBaseApi.Domain.Entities.Event.AccessControl;
-using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Shared.Commands.AccessControl;
-using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Queries;
-using BpmBaseApi.Shared.Responses;
 using MediatR;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
 
-namespace BpmBaseApi.Application.CommandHandlers.AccessControl
+namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class CreateUserCommandHandler(IMapper mapper,
-        IUnitOfWork unitOfWork) : IRequestHandler<CreateUserCommand, BaseResponseDto<Guid>>
+    public class CreateDelegationCommandHandler
+        : IRequestHandler<CreateDelegationCommand, BaseResponseDto<Guid>>
     {
-        public async Task<BaseResponseDto<Guid>> Handle(CreateUserCommand command, CancellationToken cancellationToken)
+        private readonly IUnitOfWork _uow;
+
+        public CreateDelegationCommandHandler(IUnitOfWork uow) => _uow = uow;
+
+        public async Task<BaseResponseDto<Guid>> Handle(
+            CreateDelegationCommand command,
+            CancellationToken cancellationToken)
         {
-            var userData = await unitOfWork.UserRepository.GetByFilterAsync(cancellationToken, p => p.UserCode.ToLower() == command.UserCode.ToLower());
+            // 1. Получаем имена из UserEntity
+            var principal = await _uow.UserRepository
+                .GetByFilterAsync(cancellationToken, u => u.UserCode == command.PrincipalCode);
+            if (principal == null)
+                throw new HandlerException(
+                    $"User '{command.PrincipalCode}' not found",
+                    ErrorCodesEnum.NotFound);
 
-            if (userData != null)
-            {
-                throw new HandlerException("Пользователь с таким логином уже есть в системе", ErrorCodesEnum.Business);
-            }
+            var deputy = await _uow.UserRepository
+                .GetByFilterAsync(cancellationToken, u => u.UserCode == command.DeputyCode);
+            if (deputy == null)
+                throw new HandlerException(
+                    $"User '{command.DeputyCode}' not found",
+                    ErrorCodesEnum.NotFound);
 
-            var userCreatedEvent = new UserCreatedEvent
+            // 2. Формируем событие
+            var evt = new DelegationCreatedEvent
             {
-                UserCode = command.UserCode.ToLower(),
-                UserName = command.UserName
+                EntityId           = Guid.NewGuid(),
+                PrincipalUserCode  = principal.UserCode,
+                PrincipalUserName  = principal.UserName,
+                DeputyUserCode     = deputy.UserCode,
+                DeputyUserName     = deputy.UserName
             };
 
-            await unitOfWork.UserRepository.RaiseEvent(userCreatedEvent, cancellationToken);
+            // 3. Публикуем в репозиторий
+            await _uow.DelegationRepository.RaiseEvent(evt, cancellationToken);
+            await _uow.CommitAsync(cancellationToken);
 
-            return new BaseResponseDto<Guid> { Data = userCreatedEvent.EntityId };
+            // 4. Возвращаем Id созданной записи
+            return new BaseResponseDto<Guid> { Data = evt.EntityId };
         }
     }
 }
-/// <summary>
-        /// Добавление пользователя
+
+
+// Application/CommandHandlers/Process/RemoveDelegationCommandHandler.cs
+using MediatR;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    public class RemoveDelegationCommandHandler
+        : IRequestHandler<RemoveDelegationCommand, BaseResponseDto<Guid>>
+    {
+        private readonly IUnitOfWork _uow;
+
+        public RemoveDelegationCommandHandler(IUnitOfWork uow) => _uow = uow;
+
+        public async Task<BaseResponseDto<Guid>> Handle(
+            RemoveDelegationCommand command,
+            CancellationToken cancellationToken)
+        {
+            // 1. Находим существующую делегацию
+            var list = await _uow.DelegationRepository
+                .GetByFilterListAsync(cancellationToken, d =>
+                    d.PrincipalUserCode == command.PrincipalCode &&
+                    d.DeputyUserCode    == command.DeputyCode);
+
+            var entity = list.FirstOrDefault();
+            if (entity == null)
+                throw new HandlerException(
+                    "Делегация не найдена",
+                    ErrorCodesEnum.NotFound);
+
+            // 2. Формируем событие удаления
+            var evt = new DelegationRemovedEvent
+            {
+                EntityId           = entity.Id,
+                PrincipalUserCode  = command.PrincipalCode,
+                DeputyUserCode     = command.DeputyCode
+            };
+
+            // 3. Публикуем и удаляем
+            await _uow.DelegationRepository.RaiseEvent(evt, cancellationToken);
+            await _uow.CommitAsync(cancellationToken);
+
+            return new BaseResponseDto<Guid> { Data = evt.EntityId };
+        }
+    }
+}
+
+
+// WebAPI/Controllers/Process/DelegationController.cs
+using MediatR;
+using Microsoft.AspNetCore.Mvc;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+
+namespace BpmBaseApi.WebAPI.Controllers.Process
+{
+    [ApiController]
+    [Route("api/process/delegation")]
+    public class DelegationController : ControllerBase
+    {
+        private readonly IMediator _mediator;
+
+        public DelegationController(IMediator mediator) => _mediator = mediator;
+
+        /// <summary>
+        /// Назначить заместителя
         /// </summary>
-        /// <param name="query">Запрос для добавления пользователя</param>
-        /// <param name="cancellationToken">Маркер отмены, используемый для отмены HTTP-запроса.</param>
-        /// <returns></returns>
-        [HttpPost("createuser")]
-        [SwaggerResponse(StatusCodes.Status200OK, "Данные успешно получены", typeof(BaseResponseDto<Guid>))]
+        [HttpPost("create")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Заместитель назначен", typeof(BaseResponseDto<Guid>))]
         [SwaggerResponse(StatusCodes.Status404NotFound)]
         [SwaggerResponse(StatusCodes.Status400BadRequest)]
-        [SwaggerResponse(StatusCodes.Status409Conflict)]
-        [SwaggerResponse(StatusCodes.Status500InternalServerError)]
-        [SwaggerResponse(StatusCodes.Status503ServiceUnavailable)]
-        public async Task<IActionResult> CreateUserAsync([FromBody] CreateUserCommand command, CancellationToken cancellationToken)
+        public async Task<IActionResult> CreateAsync(
+            [FromBody] CreateDelegationCommand command,
+            CancellationToken cancellationToken)
         {
-            var result = await mediator.Send(command, cancellationToken);
-
+            var result = await _mediator.Send(command, cancellationToken);
             return Ok(result);
         }
 
-что у меня реализованно 
-
-using BpmBaseApi.Domain.Entities.Process;
-using BpmBaseApi.Persistence.Configurations.SeedWork;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Metadata.Builders;
-
-namespace BpmBaseApi.Persistence.Configurations.Entities.Process;
-
-/// <summary>
-/// Настройка таблицы Delegations для сущности DelegationEntity
-/// </summary>
-public class DelegationConfiguration : BaseEntityConfiguration<DelegationEntity>
-{
-    public override void Configure(EntityTypeBuilder<DelegationEntity> builder)
-    {
-        // имя таблицы и комментарий
-        builder.ToTable("Delegations", t => t.HasComment("Таблица заместителей"));
-
-        // ключевой столбец Id приходит из BaseJournaledEntity
-
-        // PrincipalUserCode — обязательное поле
-        builder.Property(p => p.PrincipalUserCode)
-            .IsRequired()
-            .HasMaxLength(64)
-            .HasComment("Код пользователя, которого замещают");
-
-        // PrincipalUserName — не-null, можно хранить до 256 символов
-        builder.Property(p => p.PrincipalUserName)
-            .IsRequired()
-            .HasMaxLength(256)
-            .HasComment("Имя пользователя, которого замещают");
-
-        // DeputyUserCode — обязательное поле
-        builder.Property(p => p.DeputyUserCode)
-            .IsRequired()
-            .HasMaxLength(64)
-            .HasComment("Код заместителя");
-
-        // DeputyUserName — не-null, можно хранить до 256 символов
-        builder.Property(p => p.DeputyUserName)
-            .IsRequired()
-            .HasMaxLength(256)
-            .HasComment("Имя заместителя");
-
-        // Уникальный индекс, чтобы не дублировать одну и ту же пару
-        builder.HasIndex(p => new { p.PrincipalUserCode, p.DeputyUserCode })
-            .IsUnique()
-            .HasDatabaseName("UX_Delegations_Principal_Deputy");
-
-        base.Configure(builder);
+        /// <summary>
+        /// Снять заместителя
+        /// </summary>
+        [HttpPost("remove")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Заместитель снят", typeof(BaseResponseDto<Guid>))]
+        [SwaggerResponse(StatusCodes.Status404NotFound)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RemoveAsync(
+            [FromBody] RemoveDelegationCommand command,
+            CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(command, cancellationToken);
+            return Ok(result);
+        }
     }
 }
-using BpmBaseApi.Domain.SeedWork;
-
-namespace BpmBaseApi.Domain.Entities.Process;
-
-/// <summary>
-/// Делегирование: кто замещает кого
-/// </summary>
-public class DelegationEntity : BaseJournaledEntity
-{
-    /// <summary>Код пользователя, которого замещают</summary>
-    public string PrincipalUserCode { get; private set; }
-
-    /// <summary>Имя пользователя, которого замещают</summary>
-    public string PrincipalUserName { get; private set; }
-
-    /// <summary>Код заместителя</summary>
-    public string DeputyUserCode { get; private set; }
-
-    /// <summary>Имя заместителя</summary>
-    public string DeputyUserName { get; private set; }
-
-    // 1) Пустой (parameterless) конструктор нужен EF Core для materialization.
-    protected DelegationEntity() { }
-
-    /// <summary>
-    /// 2) Бизнес-конструктор для создания нового делегирования.
-    /// </summary>
-    /// <param name="principalCode">Код принципала</param>
-    /// <param name="principalName">Имя принципала</param>
-    /// <param name="deputyCode">Код заместителя</param>
-    /// <param name="deputyName">Имя заместителя</param>
-    public DelegationEntity(
-        string principalCode,
-        string principalName,
-        string deputyCode,
-        string deputyName)
-    {
-        Id = Guid.NewGuid();
-        PrincipalUserCode = principalCode;
-        PrincipalUserName = principalName;
-        DeputyUserCode = deputyCode;
-        DeputyUserName = deputyName;
-    }
-}
-
 
