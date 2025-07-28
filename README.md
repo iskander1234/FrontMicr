@@ -1,47 +1,28 @@
-  public class GetUserTasksQueryHandler(
-        IMapper mapper,
-        IUnitOfWork unitOfWork,
-        IMemoryCache cache
-    ) : IRequestHandler<GetUserTasksQuery, BaseResponseDto<List<GetUserTasksResponse>>>
+using System.Linq.Expressions;
+using BpmBaseApi.Domain.SeedWork;
+
+namespace BpmBaseApi.Persistence.Interfaces
+{
+    public interface IJournaledGenericRepository<TEntity>
     {
-        public async Task<BaseResponseDto<List<GetUserTasksResponse>>> Handle(
-            GetUserTasksQuery query,
-            CancellationToken cancellationToken)
-        {
-            string cacheKey = $"tasks:{query.UserCode}";
+        ValueTask<TEntity?> GetByFilterAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
 
-            // 1) Сначала пробуем взять из кэша
-            if (cache.TryGetValue(cacheKey, out List<GetUserTasksResponse> tasksCache))
-            {
-                return new BaseResponseDto<List<GetUserTasksResponse>> { Data = tasksCache };
-            }
+        /// <summary>
+        /// Getting entity by Id 
+        /// </summary>
+        /// <param name="id"></param>
+        /// <param name="cancellationToken"></param>
+        /// <returns></returns>
+        ValueTask<List<TEntity>> GetByFilterListAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null, Func<IQueryable<TEntity>, IQueryable<TEntity>>? include = null, Func<IQueryable<TEntity>, IOrderedQueryable<TEntity>>? orderBy = null);
 
-            // 2) Получаем список кодов «принципалов», которых я замещаю
-            var delegations = await unitOfWork.DelegationRepository
-                .GetByDeputyAsync(query.UserCode, cancellationToken);
+        Task<int> CountAsync(CancellationToken cancellationToken, Expression<Func<TEntity, bool>>? filter = null);
 
-            var principalCodes = delegations
-                .Select(d => d.PrincipalUserCode)
-                .Distinct()
-                .ToList();
+        Task<Guid> RaiseEvent(BaseEntityEvent @event, CancellationToken cancellationToken, bool autoCommit = true);
 
-            // 3) Выбираем задачи:
-            //    – либо где assignee == я (query.UserCode)
-            //    – либо где assignee == любой из principalCodes
-            //    и при этом статус == "Pending"
-            var tasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-                cancellationToken,
-                p =>
-                    (p.AssigneeCode == query.UserCode ||
-                     principalCodes.Contains(p.AssigneeCode))
-                    && p.Status == "Pending"
-            );
+        ValueTask<TEntity?> GetByIdAsync(CancellationToken cancellationToken, Guid id);
 
-            // 4) Мапим в DTO и сохраняем в кэш на час
-            var responseList = mapper.Map<List<GetUserTasksResponse>>(tasks);
-            cache.Set(cacheKey, responseList, TimeSpan.FromHours(1));
-
-            // 5) Возвращаем результат
-            return new BaseResponseDto<List<GetUserTasksResponse>> { Data = responseList };
-        }
+        Task<decimal> SumAsync(CancellationToken cancellationToken, Expression<Func<TEntity, decimal>> byParam, Expression<Func<TEntity, bool>>? filter = null);
+        Task DeleteByIdAsync(Guid id, CancellationToken cancellationToken);
     }
+
+}
