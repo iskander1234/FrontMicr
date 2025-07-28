@@ -63,3 +63,39 @@ namespace BpmBaseApi.Domain.Entities.Process
         #endregion
     }
 }
+
+public class UserEntity : BaseJournaledEntity
+    {
+        /// <summary>
+        /// Код пользователя
+        /// </summary>
+        public string UserCode { get; private set; }
+
+        /// <summary>
+        /// Имя пользователя
+        /// </summary>
+        public string UserName { get; private set; }
+
+        /// <summary>
+        /// Коллекция ролей, назначенных пользователю.
+        /// </summary>
+        public virtual List<UserRoleEntity> UserRoles { get; private set; } = [];
+
+        /// <summary>
+        /// Коллекция групп, в которых состоит пользователь.
+        /// </summary>
+        public virtual List<UserGroupEntity> UserGroups { get; private set; } = [];
+
+        #region Apply
+
+        public void Apply(UserCreatedEvent @event)
+        {
+            Id = Guid.NewGuid();
+            @event.EntityId = Id;
+            UserCode = @event.UserCode;
+            UserName = @event.UserName;
+        }
+
+        #endregion
+
+    }
