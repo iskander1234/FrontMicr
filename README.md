@@ -1,91 +1,96 @@
- public async Task<Employee> GetEmployee(string login)
-        {
-            var ldapEmployee = await _bpmCoreContext
-                .LdapEmployees
-                .FirstOrDefaultAsync(x => x.Login.ToLower() == login.ToLower() || x.Email.ToLower() == (login + "@enpf.kz").ToLower());
-            var splitedEmail = ldapEmployee?.Email?.Split("@")[0];
-            var employee = await _bpmCoreContext.Employees.FirstOrDefaultAsync(x => x.Login == splitedEmail);
-            if (employee == null)
-                throw new Exception("Пользователя нет с таким логином");
-
-            return employee;
-        }
-
-
-
-        using BpmBaseApi.Persistence.Interfaces;
+using AutoMapper;
+using BpmBaseApi.Domain.Entities.Employees;
+using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Dtos.Common;
 using BpmBaseApi.Shared.Queries.Common;
 using MediatR;
 
-namespace BpmBaseApi.Application.QueryHandlers.Common;
-
-public class
-    GetEmployeeByLoginQueryHandler : IRequestHandler<GetEmployeeByLoginQuery, BaseResponseDto<EmployeeFullInfoDto>>
+namespace BpmBaseApi.Application.QueryHandlers.Common
 {
-    private readonly IUnitOfWork _unitOfWork;
-
-    public GetEmployeeByLoginQueryHandler(IUnitOfWork unitOfWork)
+    public class GetEmployeeByLoginQueryHandler
+        : IRequestHandler<GetEmployeeByLoginQuery, BaseResponseDto<EmployeeFullInfoDto>>
     {
-        _unitOfWork = unitOfWork;
-    }
+        private readonly IUnitOfWork _uow;
+        private readonly ILdapEmployeeRepository _ldapRepo;
 
-    public async Task<BaseResponseDto<EmployeeFullInfoDto>> Handle(GetEmployeeByLoginQuery query,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(query.Login))
+        public GetEmployeeByLoginQueryHandler(
+            IUnitOfWork unitOfWork,
+            ILdapEmployeeRepository ldapRepo)
         {
-            return new BaseResponseDto<EmployeeFullInfoDto>
-            {
-                Message = "Login не должен быть пустым",
-                ErrorCode = 400
-            };
+            _uow     = unitOfWork;
+            _ldapRepo = ldapRepo;
         }
 
-        var employee = await _unitOfWork.EmployeeIntRepository
-            .GetByFilterAsync(cancellationToken, e => e.Login == query.Login || e.LoginAd == query.Login);
-
-        if (employee == null)
+        public async Task<BaseResponseDto<EmployeeFullInfoDto>> Handle(
+            GetEmployeeByLoginQuery query,
+            CancellationToken ct)
         {
-            return new BaseResponseDto<EmployeeFullInfoDto>
+            if (string.IsNullOrWhiteSpace(query.Login))
+                return new BaseResponseDto<EmployeeFullInfoDto>
+                {
+                    Message   = "Login не должен быть пустым",
+                    ErrorCode = 400
+                };
+
+            // 1) Попытка найти в LDAP
+            var loginLower = query.Login.ToLower();
+            var ldap = await _ldapRepo.GetByFilterAsync(ct,
+                x => x.Login.ToLower() == loginLower
+                   || x.Email.ToLower() == $"{loginLower}@enpf.kz");
+
+            string actualLoginForEmployee = query.Login;
+
+            if (ldap != null && !string.IsNullOrWhiteSpace(ldap.Email))
             {
-                Message = "Сотрудник не найден",
-                ErrorCode = 404
-            };
-        }
-
-        var department = await _unitOfWork.DepartmentIntRepository
-            .GetByFilterAsync(cancellationToken, d => d.Id == employee.DepId);
-
-        var parentDepartment = department?.ParentId != null
-            ? await _unitOfWork.DepartmentIntRepository
-                .GetByFilterAsync(cancellationToken, d => d.Id == department.ParentId)
-            : null;
-
-        return new BaseResponseDto<EmployeeFullInfoDto>
-        {
-            Data = new EmployeeFullInfoDto
-            {
-                Id = employee.Id,
-                Name = employee.Name ?? "",
-                Position = employee.Position ?? "",
-                Login = employee.LoginAd ?? employee.Login ?? "",
-                StatusCode = employee.StatusCode,
-                StatusDescription = employee.StatusDescription ?? "",
-                DepId = employee.DepId ?? "",
-                DepName = employee.DepName ?? "",
-                ParentDepId = department?.ParentId ?? "",
-                ParentDepName = parentDepartment?.Name ?? "",
-                IsFilial = employee.IsFilial,
-                Mail = employee.Mail ?? "",
-                LocalPhone = employee.LocalPhone ?? "",
-                MobilePhone = employee.MobilePhone ?? "",
-                IsManager = employee.IsManager,
-                ManagerTabNumber = employee.ManagerTabNumber ?? "",
-                Disabled = employee.Disabled,
-                TabNumber = employee.TabNumber ?? ""
+                // убираем доменную часть, чтобы получить login в таблице сотрудников
+                actualLoginForEmployee = ldap.Email.Split('@')[0];
             }
-        };
+
+            // 2) Ищем сотрудника по логину или по LoginAd
+            var employee = await _uow.EmployeeIntRepository.GetByFilterAsync(ct,
+                e => e.Login == actualLoginForEmployee
+                  || e.LoginAd == actualLoginForEmployee);
+
+            if (employee == null)
+                return new BaseResponseDto<EmployeeFullInfoDto>
+                {
+                    Message   = "Сотрудник не найден",
+                    ErrorCode = 404
+                };
+
+            // 3) Забираем подразделение и родительское подразделение
+            var department = await _uow.DepartmentIntRepository.GetByFilterAsync(ct,
+                d => d.Id == employee.DepId);
+
+            var parentDepartment = department?.ParentId != null
+                ? await _uow.DepartmentIntRepository.GetByFilterAsync(ct,
+                    d => d.Id == department.ParentId)
+                : null;
+
+            // 4) Мапим в DTO и возвращаем
+            var dto = new EmployeeFullInfoDto
+            {
+                Id               = employee.Id,
+                Name             = employee.Name ?? "",
+                Position         = employee.Position ?? "",
+                Login            = employee.LoginAd ?? employee.Login ?? "",
+                StatusCode       = employee.StatusCode,
+                StatusDescription= employee.StatusDescription ?? "",
+                DepId            = employee.DepId ?? "",
+                DepName          = employee.DepName ?? "",
+                ParentDepId      = department?.ParentId ?? "",
+                ParentDepName    = parentDepartment?.Name ?? "",
+                IsFilial         = employee.IsFilial,
+                Mail             = employee.Mail ?? "",
+                LocalPhone       = employee.LocalPhone ?? "",
+                MobilePhone      = employee.MobilePhone ?? "",
+                IsManager        = employee.IsManager,
+                ManagerTabNumber = employee.ManagerTabNumber ?? "",
+                Disabled         = employee.Disabled,
+                TabNumber        = employee.TabNumber ?? ""
+            };
+
+            return new BaseResponseDto<EmployeeFullInfoDto> { Data = dto };
+        }
     }
 }
