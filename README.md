@@ -1,55 +1,111 @@
-public class GetUserTasksQueryHandler(
-    IMapper mapper,
-    IUnitOfWork unitOfWork,
-    IMemoryCache cache
-) : IRequestHandler<GetUserTasksQuery, BaseResponseDto<List<GetUserTasksResponse>>>
+// Shared/Responses/Process/GetDeputiesResponse.cs
+namespace BpmBaseApi.Shared.Responses.Process
 {
-    public async Task<BaseResponseDto<List<GetUserTasksResponse>>> Handle(
-        GetUserTasksQuery query,
-        CancellationToken cancellationToken)
+    /// <summary>
+    /// Ответ: данные одного заместителя
+    /// </summary>
+    public class GetDeputiesResponse
     {
-        string cacheKey = $"tasks:{query.UserCode}";
-        var userCodeLower = query.UserCode.ToLower();
+        /// <summary>Код заместителя</summary>
+        public string DeputyUserCode { get; set; }
 
-        // 1) Попытка взять из кэша
-        if (cache.TryGetValue(cacheKey, out List<GetUserTasksResponse> tasksCache))
-        {
-            return new BaseResponseDto<List<GetUserTasksResponse>> { Data = tasksCache };
-        }
-
-        // 2) Всегда забираем свои (прямые) задачи Pending
-        var ownTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-            cancellationToken,
-            p => p.AssigneeCode.ToLower() == userCodeLower && p.Status == "Pending");
-
-        // 3) Проверяем, есть ли я в роли заместителя
-        var asDeputy = await unitOfWork.DelegationRepository.GetByFilterListAsync(
-            cancellationToken,
-            d => d.DeputyUserCode.ToLower() == userCodeLower);
-
-        List<ProcessTaskEntity> allTasksEntities = new List<ProcessTaskEntity>();
-        allTasksEntities.AddRange(ownTasks);
-
-        if (asDeputy.Any())
-        {
-            // 4) Собираем коды принципалов, кого я замещаю
-            var principalCodes = asDeputy
-                .Select(d => d.PrincipalUserCode.ToLower())
-                .Distinct()
-                .ToList();
-
-            // 5) Забираем их Pending-задачи
-            var principalTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-                cancellationToken,
-                p => principalCodes.Contains(p.AssigneeCode.ToLower()) && p.Status == "Pending");
-
-            allTasksEntities.AddRange(principalTasks);
-        }
-
-        // 6) Мапим и кладём в кэш
-        var responseList = mapper.Map<List<GetUserTasksResponse>>(allTasksEntities);
-        cache.Set(cacheKey, responseList, TimeSpan.FromHours(1));
-
-        return new BaseResponseDto<List<GetUserTasksResponse>> { Data = responseList };
+        /// <summary>Имя заместителя</summary>
+        public string DeputyUserName { get; set; }
     }
 }
+
+
+// Shared/Queries/Process/GetDeputiesQuery.cs
+using MediatR;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+
+namespace BpmBaseApi.Shared.Queries.Process
+{
+    /// <summary>
+    /// Запрос: получить список заместителей для указанного пользователя (principalCode)
+    /// </summary>
+    public class GetDeputiesQuery : IRequest<BaseResponseDto<List<GetDeputiesResponse>>>
+    {
+        /// <summary>Код пользователя, для которого ищем заместителей</summary>
+        public string PrincipalCode { get; set; }
+    }
+}
+
+
+// Application/QueryHandlers/Process/GetDeputiesQueryHandler.cs
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using MediatR;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Process;
+using BpmBaseApi.Shared.Responses.Process;
+
+namespace BpmBaseApi.Application.QueryHandlers.Process
+{
+    public class GetDeputiesQueryHandler
+        : IRequestHandler<GetDeputiesQuery, BaseResponseDto<List<GetDeputiesResponse>>>
+    {
+        private readonly IUnitOfWork _uow;
+
+        public GetDeputiesQueryHandler(IUnitOfWork uow)
+        {
+            _uow = uow;
+        }
+
+        public async Task<BaseResponseDto<List<GetDeputiesResponse>>> Handle(
+            GetDeputiesQuery query,
+            CancellationToken cancellationToken)
+        {
+            // 1) фильтруем все записи делегаций, где я — PRINCIPAL
+            var delegations = await _uow.DelegationRepository
+                .GetByFilterListAsync(
+                    cancellationToken,
+                    d => d.PrincipalUserCode.ToLower() == query.PrincipalCode.ToLower()
+                );
+
+            // 2) проецируем в DTO
+            var response = delegations
+                .Select(d => new GetDeputiesResponse
+                {
+                    DeputyUserCode = d.DeputyUserCode,
+                    DeputyUserName = d.DeputyUserName
+                })
+                .ToList();
+
+            // 3) возвращаем через общий BaseResponseDto
+            return new BaseResponseDto<List<GetDeputiesResponse>>
+            {
+                Data = response
+            };
+        }
+    }
+}
+
+
+
+/// <summary>
+        /// Получить список заместителей для указанного пользователя (principalCode).
+        /// </summary>
+        /// <param name="principalCode">Код пользователя, для которого ищем заместителей.</param>
+        [HttpGet("deputies")]
+        [ProducesResponseType(typeof(BaseResponseDto<List<GetDeputiesResponse>>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> GetDeputies(
+            [FromQuery] string principalCode,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(principalCode))
+                return BadRequest(new BaseResponseDto<List<GetDeputiesResponse>>
+                {
+                    Message = "PrincipalCode не должен быть пустым",
+                    ErrorCode = StatusCodes.Status400BadRequest
+                });
+
+            var query = new GetDeputiesQuery { PrincipalCode = principalCode };
+            var result = await _mediator.Send(query, cancellationToken);
+            return Ok(result);
+        }
+    }
