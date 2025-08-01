@@ -1,111 +1,124 @@
-// Shared/Responses/Process/GetDeputiesResponse.cs
-namespace BpmBaseApi.Shared.Responses.Process
-{
-    /// <summary>
-    /// Ответ: данные одного заместителя
-    /// </summary>
-    public class GetDeputiesResponse
-    {
-        /// <summary>Код заместителя</summary>
-        public string DeputyUserCode { get; set; }
+"shortName": "Досгали И.Д.",
 
-        /// <summary>Имя заместителя</summary>
-        public string DeputyUserName { get; set; }
-    }
+Мне надо сделать просто новое поле и shortName но в бд не надо просто выводит так сюда данный момент она такая 
+{
+  "data": {
+    "id": 414,
+    "name": "Досгали Искандер Досгалиұлы",
+    "position": "Главный специалист",
+    "login": "i.dosgali",
+    "statusCode": 6,
+    "statusDescription": "Работа",
+    "depId": "19.100509",
+    "depName": "Управление разработки Web приложений и сервисов",
+    "parentDepId": "19.100500",
+    "parentDepName": "Департамент цифровизации",
+    "isFilial": false,
+    "mail": "i.dosgali@enpf.kz",
+    "localPhone": "0",
+    "mobilePhone": "+7(747) 790-29-49",
+    "isManager": false,
+    "managerTabNumber": "4340",
+    "disabled": false,
+    "tabNumber": "00ЗП-00275"
+  },
+  "message": null,
+  "errorCode": null
 }
 
-
-// Shared/Queries/Process/GetDeputiesQuery.cs
-using MediatR;
-using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Responses.Process;
-
-namespace BpmBaseApi.Shared.Queries.Process
-{
-    /// <summary>
-    /// Запрос: получить список заместителей для указанного пользователя (principalCode)
-    /// </summary>
-    public class GetDeputiesQuery : IRequest<BaseResponseDto<List<GetDeputiesResponse>>>
-    {
-        /// <summary>Код пользователя, для которого ищем заместителей</summary>
-        public string PrincipalCode { get; set; }
-    }
-}
-
-
-// Application/QueryHandlers/Process/GetDeputiesQueryHandler.cs
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using MediatR;
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Queries.Process;
-using BpmBaseApi.Shared.Responses.Process;
+using BpmBaseApi.Shared.Dtos.Common;
+using BpmBaseApi.Shared.Queries.Common;
+using MediatR;
 
-namespace BpmBaseApi.Application.QueryHandlers.Process
+namespace BpmBaseApi.Application.QueryHandlers.Common;
+
+public class
+    GetEmployeeByLoginQueryHandler : IRequestHandler<GetEmployeeByLoginQuery, BaseResponseDto<EmployeeFullInfoDto>>
 {
-    public class GetDeputiesQueryHandler
-        : IRequestHandler<GetDeputiesQuery, BaseResponseDto<List<GetDeputiesResponse>>>
+    private readonly IUnitOfWork _unitOfWork;
+
+    public GetEmployeeByLoginQueryHandler(IUnitOfWork unitOfWork)
     {
-        private readonly IUnitOfWork _uow;
+        _unitOfWork = unitOfWork;
+    }
 
-        public GetDeputiesQueryHandler(IUnitOfWork uow)
+    public async Task<BaseResponseDto<EmployeeFullInfoDto>> Handle(GetEmployeeByLoginQuery query,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(query.Login))
         {
-            _uow = uow;
-        }
-
-        public async Task<BaseResponseDto<List<GetDeputiesResponse>>> Handle(
-            GetDeputiesQuery query,
-            CancellationToken cancellationToken)
-        {
-            // 1) фильтруем все записи делегаций, где я — PRINCIPAL
-            var delegations = await _uow.DelegationRepository
-                .GetByFilterListAsync(
-                    cancellationToken,
-                    d => d.PrincipalUserCode.ToLower() == query.PrincipalCode.ToLower()
-                );
-
-            // 2) проецируем в DTO
-            var response = delegations
-                .Select(d => new GetDeputiesResponse
-                {
-                    DeputyUserCode = d.DeputyUserCode,
-                    DeputyUserName = d.DeputyUserName
-                })
-                .ToList();
-
-            // 3) возвращаем через общий BaseResponseDto
-            return new BaseResponseDto<List<GetDeputiesResponse>>
+            return new BaseResponseDto<EmployeeFullInfoDto>
             {
-                Data = response
+                Message = "Login не должен быть пустым",
+                ErrorCode = 400
             };
         }
+
+        var employee = await _unitOfWork.EmployeeIntRepository
+            .GetByFilterAsync(cancellationToken, e => e.Login == query.Login || e.LoginAd == query.Login);
+
+        if (employee == null)
+        {
+            return new BaseResponseDto<EmployeeFullInfoDto>
+            {
+                Message = "Сотрудник не найден",
+                ErrorCode = 404
+            };
+        }
+
+        return new BaseResponseDto<EmployeeFullInfoDto>
+        {
+            Data = new EmployeeFullInfoDto
+            {
+                Id = employee.Id,
+                Name = employee.Name ?? "",
+                Position = employee.Position ?? "",
+                Login = employee.LoginAd ?? employee.Login ?? "",
+                StatusCode = employee.StatusCode,
+                StatusDescription = employee.StatusDescription ?? "",
+                DepId = employee.DepId ?? "",
+                DepName = employee.DepName ?? "",
+                ParentDepId = employee.ParentDepId ?? "",
+                ParentDepName = employee.ParentDepName ?? "",
+                IsFilial = employee.IsFilial,
+                Mail = employee.Mail ?? "",
+                LocalPhone = employee.LocalPhone ?? "",
+                MobilePhone = employee.MobilePhone ?? "",
+                IsManager = employee.IsManager,
+                ManagerTabNumber = employee.ManagerTabNumber ?? "",
+                Disabled = employee.Disabled,
+                TabNumber = employee.TabNumber ?? ""
+            }
+        };
     }
 }
 
+А нужно такой ответ и также у некоторых возможно нет очество просто тогда будет Досгали И.
 
-
-/// <summary>
-        /// Получить список заместителей для указанного пользователя (principalCode).
-        /// </summary>
-        /// <param name="principalCode">Код пользователя, для которого ищем заместителей.</param>
-        [HttpGet("deputies")]
-        [ProducesResponseType(typeof(BaseResponseDto<List<GetDeputiesResponse>>), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> GetDeputies(
-            [FromQuery] string principalCode,
-            CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrWhiteSpace(principalCode))
-                return BadRequest(new BaseResponseDto<List<GetDeputiesResponse>>
-                {
-                    Message = "PrincipalCode не должен быть пустым",
-                    ErrorCode = StatusCodes.Status400BadRequest
-                });
-
-            var query = new GetDeputiesQuery { PrincipalCode = principalCode };
-            var result = await _mediator.Send(query, cancellationToken);
-            return Ok(result);
-        }
-    }
+{
+  "data": {
+    "id": 414,
+    "name": "Досгали Искандер Досгалиұлы",
+    "shortName": "Досгали И.Д.",
+    "position": "Главный специалист",
+    "login": "i.dosgali",
+    "statusCode": 6,
+    "statusDescription": "Работа",
+    "depId": "19.100509",
+    "depName": "Управление разработки Web приложений и сервисов",
+    "parentDepId": "19.100500",
+    "parentDepName": "Департамент цифровизации",
+    "isFilial": false,
+    "mail": "i.dosgali@enpf.kz",
+    "localPhone": "0",
+    "mobilePhone": "+7(747) 790-29-49",
+    "isManager": false,
+    "managerTabNumber": "4340",
+    "disabled": false,
+    "tabNumber": "00ЗП-00275"
+  },
+  "message": null,
+  "errorCode": null
+}
