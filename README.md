@@ -151,3 +151,74 @@ namespace BpmBaseApi.WebAPI.Controllers
         }
     }
 }
+
+
+
+// Services/Implementations/FileService.cs
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using BpmBaseApi.Services.Interfaces;
+using Microsoft.AspNetCore.Http;
+
+namespace BpmBaseApi.Services.Implementations
+{
+    /// <summary>
+    /// Реализация IFileService на основе HttpClient.
+    /// </summary>
+    public class FileService : IFileService
+    {
+        private readonly HttpClient _http;
+
+        public FileService(HttpClient http)
+        {
+            _http = http;
+        }
+
+        public async Task<string> UploadAsync(IFormFile file, CancellationToken ct)
+        {
+            using var content = new MultipartFormDataContent();
+            using var stream = file.OpenReadStream();
+            var fileContent = new StreamContent(stream);
+            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(file.ContentType);
+
+            // "file" — имя поля, как ожидает внешний сервис
+            content.Add(fileContent, "file", file.FileName);
+
+            var resp = await _http.PostAsync("upload", content, ct);
+            resp.EnsureSuccessStatusCode();
+
+            // Читаем ответ JSON { "fileName": "..." }
+            var dto = await resp.Content.ReadFromJsonAsync<UploadResultDto>(cancellationToken: ct);
+            if (dto == null || string.IsNullOrWhiteSpace(dto.FileName))
+                throw new InvalidOperationException("Не удалось получить имя файла от сервиса");
+
+            return dto.FileName;
+        }
+
+        public async Task<Stream> GetAsync(string fileName, CancellationToken ct)
+        {
+            // GET http://.../files/{fileName}
+            var resp = await _http.GetAsync(fileName, ct);
+            resp.EnsureSuccessStatusCode();
+            return await resp.Content.ReadAsStreamAsync(ct);
+        }
+
+        public async Task DeleteAsync(string fileName, CancellationToken ct)
+        {
+            // DELETE http://.../files/delete/{fileName}
+            var url = $"delete/{Uri.EscapeDataString(fileName)}";
+            var resp = await _http.DeleteAsync(url, ct);
+            resp.EnsureSuccessStatusCode();
+        }
+
+        private class UploadResultDto
+        {
+            public string FileName { get; set; } = default!;
+        }
+    }
+}
