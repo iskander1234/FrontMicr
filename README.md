@@ -1,6 +1,10 @@
 dotnet ef migrations remove `
   --project BpmBaseApi.Persistence `
   --startup-project BpmBaseApi
+  
+dotnet ef database update 20250807050238_RemoveBlockKeyFromProcessTask `
+  --project BpmBaseApi.Persistence `
+  --startup-project BpmBaseApi
 
 
 PS C:\BPM\bpm\bpmbaseapi> dotnet ef migrations remove `
