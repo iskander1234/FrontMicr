@@ -1,2 +1,3 @@
-DELETE FROM "__EFMigrationsHistory"
- WHERE "MigrationId" = '20250807113806_AddProcessFileTable';
+dotnet ef migrations remove \
+  --project BpmBaseApi.Persistence \
+  --startup-project BpmBaseApi
