@@ -1,74 +1,114 @@
-Microsoft.EntityFrameworkCore.DbUpdateException: An error occurred while saving the entity changes. See the inner exception for details.
- ---> Npgsql.PostgresException (0x80004005): 23502: значение NULL в столбце "FileName" отношения "ProcessFile" нарушает ограничение NOT NULL
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Models.Camunda;
+using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using static BpmBaseApi.Shared.Models.Process.CommonData;
 
-DETAIL: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
-   at Npgsql.Internal.NpgsqlConnector.ReadMessageLong(Boolean async, DataRowLoadingMode dataRowLoadingMode, Boolean readingNotifications, Boolean isReadingPrependedMessage)
-   at System.Runtime.CompilerServices.PoolingAsyncValueTaskMethodBuilder`1.StateMachineBox`1.System.Threading.Tasks.Sources.IValueTaskSource<TResult>.GetResult(Int16 token)
-   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
-   at Npgsql.NpgsqlDataReader.NextResult(Boolean async, Boolean isConsuming, CancellationToken cancellationToken)
-   at Npgsql.EntityFrameworkCore.PostgreSQL.Update.Internal.NpgsqlModificationCommandBatch.Consume(RelationalDataReader reader, Boolean async, CancellationToken cancellationToken)
-  Exception data:
-    Severity: ОШИБКА
-    SqlState: 23502
-    MessageText: значение NULL в столбце "FileName" отношения "ProcessFile" нарушает ограничение NOT NULL
-    Detail: Detail redacted as it may contain sensitive data. Specify 'Include Error Detail' in the connection string to include this information.
-    SchemaName: public
-    TableName: ProcessFile
-    ColumnName: FileName
-    File: execMain.c
-    Line: 1988
-    Routine: ExecConstraints
-   --- End of inner exception stack trace ---
-   at Npgsql.EntityFrameworkCore.PostgreSQL.Update.Internal.NpgsqlModificationCommandBatch.Consume(RelationalDataReader reader, Boolean async, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Update.ReaderModificationCommandBatch.ExecuteAsync(IRelationalConnection connection, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Update.ReaderModificationCommandBatch.ExecuteAsync(IRelationalConnection connection, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Update.Internal.BatchExecutor.ExecuteAsync(IEnumerable`1 commandBatches, IRelationalConnection connection, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.Storage.RelationalDatabase.SaveChangesAsync(IList`1 entries, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.ChangeTracking.Internal.StateManager.SaveChangesAsync(IList`1 entriesToSave, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.ChangeTracking.Internal.StateManager.SaveChangesAsync(StateManager stateManager, Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
-   at Npgsql.EntityFrameworkCore.PostgreSQL.Storage.Internal.NpgsqlExecutionStrategy.ExecuteAsync[TState,TResult](TState state, Func`4 operation, Func`4 verifySucceeded, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
-   at Microsoft.EntityFrameworkCore.DbContext.SaveChangesAsync(Boolean acceptAllChangesOnSuccess, CancellationToken cancellationToken)
-   at BpmBaseApi.Persistence.Repositories.JournaledGenericRepository`1.RaiseEvent(BaseEntityEvent event, CancellationToken cancellationToken, Boolean autoCommit) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi.Persistence\Repositories\JournaledGenericRepository.cs:line 124
-   at BpmBaseApi.Application.CommandHandlers.Process.StartProcessCommandHandler.Handle(StartProcessCommand command, CancellationToken cancellationToken) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi.Application\CommandHandlers\Process\StartProcessCommandHandler.cs:line 80
-   at BpmBaseApi.Controllers.V1.ProcessController.StartProcessAsync(StartProcessCommand command, CancellationToken cancellationToken) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Controllers\V1\ProcessController.cs:line 55
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ActionMethodExecutor.TaskOfIActionResultExecutor.Execute(ActionContext actionContext, IActionResultTypeMapper mapper, ObjectMethodExecutor executor, Object controller, Object[] arguments)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeActionMethodAsync>g__Logged|12_1(ControllerActionInvoker invoker)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeNextActionFilterAsync>g__Awaited|10_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Rethrow(ActionExecutedContextSealed context)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.Next(State& next, Scope& scope, Object& state, Boolean& isCompleted)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ControllerActionInvoker.<InvokeInnerFilterAsync>g__Awaited|13_0(ControllerActionInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeFilterPipelineAsync>g__Awaited|20_0(ResourceInvoker invoker, Task lastTask, State next, Scope scope, Object state, Boolean isCompleted)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Logged|17_1(ResourceInvoker invoker)
-   at Microsoft.AspNetCore.Mvc.Infrastructure.ResourceInvoker.<InvokeAsync>g__Logged|17_1(ResourceInvoker invoker)
-   at BpmBaseApi.Middlewares.ErrorHandlerMiddleware.Invoke(HttpContext context) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Middlewares\ErrorHandlerMiddleware.cs:line 24
-   at BpmBaseApi.Middlewares.DefineUserHandler.Invoke(HttpContext context) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Middlewares\DefineUserHandler.cs:line 30
-   at BpmBaseApi.Middlewares.CorrelationMiddleware.Invoke(HttpContext context) in C:\BPM\bpm\bpmbaseapi\BpmBaseApi\Middlewares\CorrelationMiddleware.cs:line 16
-   at Microsoft.AspNetCore.Authorization.AuthorizationMiddleware.Invoke(HttpContext context)
-   at Microsoft.AspNetCore.Authentication.AuthenticationMiddleware.Invoke(HttpContext context)
-   at Swashbuckle.AspNetCore.ReDoc.ReDocMiddleware.Invoke(HttpContext httpContext)
-   at Swashbuckle.AspNetCore.SwaggerUI.SwaggerUIMiddleware.Invoke(HttpContext httpContext)
-   at Swashbuckle.AspNetCore.Swagger.SwaggerMiddleware.Invoke(HttpContext httpContext, ISwaggerProvider swaggerProvider)
-   at Microsoft.AspNetCore.Diagnostics.DeveloperExceptionPageMiddlewareImpl.Invoke(HttpContext context)
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    public class StartProcessCommandHandler(
+    IUnitOfWork unitOfWork,
+    IPayloadReaderService payloadReader,
+    IProcessTaskService helperService,
+    ICamundaService camundaService)
+    : IRequestHandler<StartProcessCommand, BaseResponseDto<StartProcessResponse>>
+    {
 
-HEADERS
-=======
-Accept: text/plain; x-api-version=1.0
-Connection: keep-alive
-Host: localhost:5143
-User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36
-Accept-Encoding: gzip, deflate, br, zstd
-Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7
-Content-Type: application/json; x-api-version=1.0
-Origin: http://localhost:5143
-Referer: http://localhost:5143/swagger/index.html
-Content-Length: 4873
-sec-ch-ua-platform: "Windows"
-sec-ch-ua: "Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"
-sec-ch-ua-mobile: ?0
-Sec-Fetch-Site: same-origin
-Sec-Fetch-Mode: cors
-Sec-Fetch-Dest: empty
-Correlation-Id: e0540ac3-f8f5-404a-bcbf-cd8b1898fd5d
+        public async Task<BaseResponseDto<StartProcessResponse>> Handle(StartProcessCommand command, CancellationToken cancellationToken)
+        {
+            var process = await unitOfWork.ProcessRepository.GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
+                ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден", ErrorCodesEnum.Business);
+
+            var requestNumber = await helperService.GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
+
+            var options = new JsonSerializerOptions
+            {
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
+
+            var payloadJson = JsonSerializer.Serialize(command.Payload, options);
+            var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
+            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
+
+            var response = await camundaService.CamundaStartProcess(
+               new CamundaStartProcessRequest
+               {
+                   processCode = command.ProcessCode
+               });
+
+            var processDataCreatedEvent = new ProcessDataCreatedEvent
+            {
+                ProcessId = process.Id,
+                ProcessCode = process.ProcessCode,
+                ProcessName = process.ProcessName,
+                RegNumber = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                StatusCode = "Started",
+                StatusName = "В работе",
+                PayloadJson = payloadJson,
+                Title = processDataDto.DocumentTitle,
+                ProcessInstanceId = response
+            };
+
+            await unitOfWork.ProcessDataRepository.RaiseEvent(processDataCreatedEvent, cancellationToken);
+            
+            // --- NEW: сохраняем привязанные файлы в таблицу ProcessFile ---
+            // Предполагаем, что в command.Payload есть список файлов:
+            var filesSection = payloadReader.ReadSection<List<FileDto>>(command.Payload, "files");
+            if (filesSection != null && filesSection.Any())
+            {
+                foreach (var file in filesSection)
+                {
+                    var fileEvent = new ProcessFileCreatedEvent
+                    {
+                        EntityId      = Guid.NewGuid(),                               // PK → Id
+                        ProcessDataId = processDataCreatedEvent.EntityId,             // FK на только что созданный ProcessData
+                        FileName      = file.FileName,                                // имя файла из DTO
+                        FileType      = file.FileType                                 // тип/расширение из DTO
+                    };
+                    await unitOfWork.ProcessFileRepository
+                        .RaiseEvent(fileEvent, cancellationToken);
+                }
+            }
+
+            var processTaskHistoryCreatedEvent = new ProcessTaskHistoryCreatedEvent
+            {
+                ProcessDataId = processDataCreatedEvent.EntityId,
+                TaskId = processDataCreatedEvent.EntityId, // Возможно стоит заменить на ID задачи, если будет доступен
+                Action = ProcessAction.Start.ToString(),
+                BlockName = "Регистрационная форма",
+                Timestamp = DateTime.Now,
+                PayloadJson = payloadJson,
+                Comment = "",
+                Description = "",
+                ProcessCode = command.ProcessCode,
+                ProcessName = process.ProcessName,
+                RegNumber = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                Title = processDataDto.DocumentTitle
+            };
+
+            await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(processTaskHistoryCreatedEvent, cancellationToken);
+
+            
+            return new BaseResponseDto<StartProcessResponse>
+            {
+                Data = new StartProcessResponse
+                {
+                    ProcessGuid = processDataCreatedEvent.EntityId,
+                    RegNumber = requestNumber
+                }
+            };
+        }
