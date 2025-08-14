@@ -589,4 +589,132 @@ return processTaskService.SuccessResponse(nextBlock.BlockCode, nextBlock.BlockNa
     }
 }
     
+using System.Diagnostics;
+using System.Reflection.Emit;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using System.Security.Cryptography;
+using BpmBaseApi.Domain.SeedWork;
+
+namespace BpmBaseApi.Domain.Entities.Process
+{
+    public class ProcessTaskEntity : BaseJournaledEntity
+    {
+        public Guid Id { get; set; }
+        public Guid ProcessDataId { get; set; }
+        public ProcessDataEntity ProcessData { get; set; }
+        public Guid? ParentTaskId { get; set; }
+        public ProcessTaskEntity? ParentTask { get; set; }
+        public List<ProcessTaskEntity> SubTasks { get; set; } = new ();
+        public Guid? BlockId { get; set; }
+        //public BlockEntity Block { get; set; }
+        public string? BlockCode { get; set; }
+        public string BlockName { get; set; }
+        public string AssigneeCode { get; set; }
+        public string AssigneeName { get; set; }
+        public string Status { get; set; }    
+        public string? Comment { get; set; }
+        public string? PayloadJson { get; set; }
+        public string ProcessCode { get; set; }
+        public string ProcessName { get; set; }
+        public string RegNumber { get; set; }
+        public string InitiatorCode { get; set; }
+        public string InitiatorName { get; set; }
+        public string Title { get; set; }
+
+
+        #region Apply
+
+        public void Apply(ProcessTaskCreatedEvent @event)
+        {
+            Id = Guid.NewGuid();
+            @event.EntityId = Id;
+            ParentTaskId = @event.ParentTaskId;
+            ProcessDataId = @event.ProcessDataId;
+            BlockId = @event.BlockId;
+            BlockCode = @event.BlockCode;
+            BlockName = @event.BlockName;
+            AssigneeCode = @event.AssigneeCode;
+            AssigneeName = @event.AssigneeName;
+            Status = @event.Status;
+            Comment = @event.Comment;
+            PayloadJson = @event.PayloadJson;
+            ProcessCode = @event.ProcessCode;
+            ProcessName = @event.ProcessName;
+            RegNumber = @event.RegNumber;
+            InitiatorCode = @event.InitiatorCode;
+            InitiatorName = @event.InitiatorName;
+            Title = @event.Title;
+        }
+
+        public void Apply(ProcessTaskStatusChangedEvent @event)
+        {
+            Status = @event.Status;
+        }
+
+        #endregion
+    }
+}
+
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore;
+using BpmBaseApi.Domain.Entities.Process;
+
+namespace BpmBaseApi.Persistence.Configurations.Entities.Process
+{
+    public class ProcessTaskConfiguration : IEntityTypeConfiguration<ProcessTaskEntity>
+    {
+        public void Configure(EntityTypeBuilder<ProcessTaskEntity> builder)
+        {
+            builder.ToTable("ProcessTask", t => t.HasComment("Активные задачи по заявке"));
+
+            builder.HasKey(t => t.Id);
+
+            builder.Property(t => t.BlockName).HasMaxLength(200).HasComment("Название шага");
+            builder.Property(t => t.AssigneeCode).HasMaxLength(100).HasComment("Кому назначено");
+            builder.Property(t => t.Status).HasMaxLength(50).HasComment("Статус задачи (Pending, Completed и т.д.)");
+            builder.Property(t => t.PayloadJson).HasComment("Содержимое заявки в JSON");
+
+
+            builder.HasOne(t => t.ProcessData)
+                .WithMany(d => d.ProcessTasks)
+                .HasForeignKey(t => t.ProcessDataId)
+                .OnDelete(DeleteBehavior.Cascade);
+            builder
+               .Navigation(p => p.ProcessData)
+               .AutoInclude();
+
+            /*builder.HasOne(t => t.Block)
+                .WithMany()
+                .HasForeignKey(t => t.BlockId)
+                .OnDelete(DeleteBehavior.Restrict);*/
+
+            builder.HasOne(t => t.ParentTask)
+                .WithMany(p => p.SubTasks)
+                .HasForeignKey(t => t.ParentTaskId)
+                .OnDelete(DeleteBehavior.Restrict);
+            
+
+
+            /*
+             builder
+                .Property(b => b.NextBlockId)
+                .HasComment("Идентификатор следующего блока в маршруте");
+            builder
+                .HasOne(b => b.NextBlock)
+                .WithMany()
+                .HasForeignKey(b => b.NextBlockId)
+                .OnDelete(DeleteBehavior.Restrict);
+            builder
+                .Navigation(p => p.NextBlock)
+                .AutoInclude();
+             */
+            //builder.Navigation(t => t.ProcessData).AutoInclude(false);
+            //builder.Navigation(t => t.Block).AutoInclude(false);
+            //builder.Navigation(t => t.ParentTask).AutoInclude(false);
+            //builder.Navigation(t => t.SubTasks).AutoInclude(false);
+        }
+    }
+
+}
+
 
