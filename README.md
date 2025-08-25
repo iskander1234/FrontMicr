@@ -1,11 +1,195 @@
-new CamundaSubmitTaskRequest
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using System.Text.Json;
+using AutoMapper;
+using Microsoft.Extensions.Caching.Memory;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Models.Camunda;
+
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    public class SendProcessCommandHandler(
+        IMapper mapper,
+        IUnitOfWork unitOfWork,
+        IMemoryCache cache,
+        ICamundaService camundaService,
+        IProcessTaskService processTaskService)
+        : IRequestHandler<SendProcessCommand, BaseResponseDto<SendProcessResponse>>
+    {
+        public async Task<BaseResponseDto<SendProcessResponse>> Handle(SendProcessCommand command,
+            CancellationToken cancellationToken)
+        {
+            // Берём задачу без фильтра по статусу — чтобы поймать Waiting и вернуть 400 с подсказкой
+            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
+                cancellationToken,
+                p => p.Id == command.TaskId
+            ) ?? throw new HandlerException("Задача не найдена", ErrorCodesEnum.Business);
+
+            var processData =
+                await unitOfWork.ProcessDataRepository.GetByIdAsync(cancellationToken, currentTask.ProcessDataId)
+                ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
+
+            // Последовательный ли режим из processData.approvalTypeCode
+            var pdPayload = JsonSerializer.Deserialize<Dictionary<string, object>>(processData.PayloadJson);
+            bool isSequential = ReadIsSequentialFromProcessData(pdPayload);
+
+            // Если Sequentially и задача НЕ Pending → 400 и сказать кто Pending
+            if (isSequential && !string.Equals(currentTask.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+            {
+                ProcessTaskEntity? activePending = null;
+
+                if (currentTask.ParentTaskId != null)
+                {
+                    activePending = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
+                        cancellationToken,
+                        t => t.ParentTaskId == currentTask.ParentTaskId && t.Status == "Pending"
+                    );
+                }
+
+                if (activePending == null)
+                {
+                    activePending = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
+                        cancellationToken,
+                        t => t.ProcessDataId == currentTask.ProcessDataId
+                             && t.BlockCode == currentTask.BlockCode
+                             && t.Status == "Pending"
+                    );
+                }
+
+                var responsible = activePending?.AssigneeCode ?? "не найден";
+                throw new HandlerException(
+                    $"Отправка запрещена: сначала должен отправить исполнитель со статусом Pending ({responsible}).",
+                    ErrorCodesEnum.Business // у тебя это маппится в HTTP 400
+                );
+            }
+
+            // Старая проверка «только Pending» (для параллельного режима как было)
+            if (!string.Equals(currentTask.Status, "Pending", StringComparison.OrdinalIgnoreCase))
+                throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
+
+            var recipients = ExtractFromPayload<List<UserInfo>>(command.PayloadJson, "recipients") ?? new();
+            //var comment = ExtractFromPayload<string>(command.PayloadJson, "comment");
+
+            // Делегирование
+            if (command.Action == ProcessAction.Delegate && recipients.Any())
+            {
+                await processTaskService.HandleDelegationAsync(currentTask, processData, command, recipients,
+                    cancellationToken);
+                return new BaseResponseDto<SendProcessResponse>
+                {
+                    Data = new SendProcessResponse { Success = true }
+                };
+            }
+
+            // Если sequential — закрываем текущего, поднимаем следующего Waiting -> Pending по Order, затем Created
+            if (isSequential)
+            {
+                var parent = await unitOfWork.ProcessTaskRepository
+                    .GetByIdAsync(cancellationToken, currentTask.ParentTaskId!.Value);
+
+                var siblings = await unitOfWork.ProcessTaskRepository
+                    .GetByFilterListAsync(cancellationToken, t => t.ParentTaskId == parent.Id);
+
+                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
+                    cancellationToken);
+                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
+
+                var next = siblings
+                    .Where(t => t.Status == "Waiting")
+                    .OrderBy(t => t.Order ?? int.MaxValue)
+                    .ThenBy(t => t.Created)
+                    .FirstOrDefault();
+
+                if (next != null)
+                {
+                    await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
+                    {
+                        EntityId = next.Id,
+                        Status = "Pending"
+                    }, cancellationToken);
+
+                    return new BaseResponseDto<SendProcessResponse>
+                    {
+                        Data = new SendProcessResponse { Success = true }
+                    };
+                }
+
+                // Очередь исчерпана — ниже пошла твоя старая логика с Camunda/родителем
+            }
+
+            var pendingSiblings = await unitOfWork.ProcessTaskRepository.CountAsync(cancellationToken,
+                t => t.ParentTaskId == currentTask.ParentTaskId && t.Id != currentTask.Id /*&& t.Status == "Pending"*/);
+
+            if (pendingSiblings > 0)
+            {
+                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
+                    cancellationToken);
+                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
+
+                return new BaseResponseDto<SendProcessResponse>
+                {
+                    Data = new SendProcessResponse { Success = true }
+                };
+            }
+
+            var parentTask =
+                await unitOfWork.ProcessTaskRepository.GetByIdAsync(cancellationToken, currentTask.ParentTaskId.Value);
+
+            if (parentTask.AssigneeCode == "system")
+            {
+                var claimedTasksResponse =
+                    await camundaService.CamundaClaimedTasks(processData.ProcessInstanceId, parentTask.BlockCode)
+                    ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
+
+                if (!Enum.TryParse<ProcessStage>(parentTask.BlockCode, out var stage))
+                {
+                    throw new InvalidOperationException($"Unknown process stage: {parentTask.BlockCode}");
+                }
+                
+                var submitResponse = await camundaService.CamundaSubmitTask(
+                    new CamundaSubmitTaskRequest
                     {
                         TaskId = claimedTasksResponse.TaskId,
                         Variables = GetCamundaVariablesForStage(stage, command.Condition, processData.Id)
                     });
 
+                if (!submitResponse.Success)
+                {
+                    throw new HandlerException($"Ошибка при отправке Msg:{submitResponse.Msg}", ErrorCodesEnum.Camunda);
+                }
 
-                    private Dictionary<string, object> GetCamundaVariablesForStage(ProcessStage stage, ProcessCondition condition, Guid processDataId)
+                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
+                    cancellationToken);
+                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
+                await processTaskService.FinalizeTaskAsync(parentTask, cancellationToken);
+
+                return new BaseResponseDto<SendProcessResponse>
+                {
+                    Data = new SendProcessResponse { Success = true }
+                };
+            }
+
+            await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
+            {
+                EntityId = parentTask.Id,
+                Status = "Pending"
+            }, cancellationToken);
+
+            return new BaseResponseDto<SendProcessResponse>
+            {
+                Data = new SendProcessResponse { Success = true }
+            };
+        }
+
+        private Dictionary<string, object> GetCamundaVariablesForStage(ProcessStage stage, ProcessCondition condition, Guid processDataId)
         {
             
             return stage switch
@@ -16,83 +200,151 @@ new CamundaSubmitTaskRequest
             };
         }
 
-            public enum ProcessCondition
-    {
         /// <summary>
-        /// Одобрить
+        /// true, если processData.approvalTypeCode == "Sequentially"
         /// </summary>
-        accept,
-
-        /// <summary>
-        /// На доработку
-        /// </summary>
-        remake,
-
-        /// <summary>
-        /// Отклонить
-        /// </summary>
-        reject
-    }
-
-
-    using BpmBaseApi.Domain.Entities.Event.Process;
-using BpmBaseApi.Domain.SeedWork;
-
-namespace BpmBaseApi.Domain.Entities.Process
-{
-    public class ProcessTaskHistoryEntity : BaseJournaledEntity
-    {
-        public Guid Id { get; set; }
-        public Guid ProcessDataId { get; set; }
-        public ProcessDataEntity ProcessData { get; set; }
-        public Guid TaskId { get; set; }            
-        public Guid? ParentTaskId { get; set; }
-        public string Action { get; set; }             
-        public string? AssigneeCode { get; set; }
-        public string? AssigneeName { get; set; }
-        public string? BlockCode { get; set; }
-        public string BlockName { get; set; }          
-        public string? Description { get; set; }
-        public DateTime Timestamp { get; set; }
-        public string? Comment { get; set; }
-        public string? PayloadJson { get; set; }
-        public string ProcessCode { get; set; }
-        public string ProcessName { get; set; }
-        public string RegNumber { get; set; }
-        public string? InitiatorCode { get; set; }
-        public string? InitiatorName { get; set; }
-        public string? Title { get; set; }
-        public string? Condition { get; set; }
-
-
-        #region Apply
-
-        public void Apply(ProcessTaskHistoryCreatedEvent @event)
+        private static bool ReadIsSequentialFromProcessData(Dictionary<string, object>? payload)
         {
-            Id = Guid.NewGuid();
-            @event.EntityId = Id;
-            TaskId = @event.TaskId;
-            ParentTaskId = @event.ParentTaskId;
-            Action = @event.Action;
-            InitiatorCode = @event.InitiatorCode;
-            InitiatorName = @event.InitiatorName;
-            AssigneeCode = @event.AssigneeCode;
-            AssigneeName = @event.AssigneeName;
-            BlockCode = @event.BlockCode;
-            BlockName = @event.BlockName;
-            Description = @event.Description;
-            ProcessDataId = @event.ProcessDataId;
-            Comment = @event.Comment;
-            PayloadJson = @event.PayloadJson;
-            Timestamp = @event.Timestamp;
-            ProcessCode = @event.ProcessCode;
-            ProcessName = @event.ProcessName;
-            RegNumber = @event.RegNumber;
-            Title = @event.Title;
-            Condition = @event.Condition;
+            if (payload == null) return false;
+            try
+            {
+                if (!payload.TryGetValue("processData", out var pdRaw) || pdRaw is null) return false;
+
+                var json = JsonSerializer.Serialize(pdRaw);
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+                if (pd != null && pd.TryGetValue("approvalTypeCode", out var typeRaw) && typeRaw is not null)
+                {
+                    var tJson = JsonSerializer.Serialize(typeRaw);
+                    var type = JsonSerializer.Deserialize<string>(tJson);
+                    return string.Equals(type, "Sequentially", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                /* считаем Parallel */
+            }
+
+            return false;
         }
 
-        #endregion
+        /*
+         public async Task<BaseResponseDto<SendProcessResponse>> Handle(SendProcessCommand command, CancellationToken cancellationToken)
+        {
+            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(cancellationToken,
+                p => p.Id == command.TaskId &&
+        p.Status == "Pending")
+                ?? throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
+
+        var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(cancellationToken, currentTask.ProcessDataId)
+            ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
+
+        var recipients = ExtractFromPayload<List<UserInfo>>(command.PayloadJson, "recipients") ?? new();
+        var comment = ExtractFromPayload<string>(command.PayloadJson, "comment");
+
+
+            // ===== Делегирование =====
+            if (command.Action == ProcessAction.Delegate && recipients.Any())
+            {
+                await processTaskService.HandleDelegationAsync(currentTask, processData, command, recipients, comment, cancellationToken);
+                //await processTaskService.LogHistoryAsync(currentTask, command, "", cancellationToken);
+                return processTaskService.SuccessResponse(currentTask.BlockCode, currentTask.BlockName);
+            }
+
+            // ===== Переход к следующему блоку =====
+            var currentBlock = await processTaskService.FindNextBlockAsync(
+                processData.ProcessId,
+                currentTask.BlockId,
+     rte           command.Action.ToString(),
+        command.Condition?.ToString(),
+        cancellationToken
+            ) ?? throw new HandlerException("Следующий блок не найден", ErrorCodesEnum.Business);
+
+        var nextBlock = await unitOfWork.BlockRepository.GetByFilterAsync(cancellationToken,
+            b => b.ProcessId == processData.ProcessId && b.Id == currentBlock.NextBlockId)
+            ?? throw new HandlerException("Подробности следующего блока не найдены", ErrorCodesEnum.Business);
+
+
+        // Завершение текущей подзадачи и проверка родителя
+        await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
+        await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
+            //await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
+
+            recipients = await processTaskService.ResolveRecipientsAsync(processData.ProcessCode, nextBlock.BlockCode, recipients, cancellationToken);
+
+    var blockResult = await processTaskService.TryHandleParentTaskAsync(currentTask, currentBlock, nextBlock, processData, command, comment, recipients, cancellationToken);
+
+            if (blockResult?.Handled == true)
+            {
+                if (blockResult.BlockCode == "Completion")
+                {
+                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataStatusChangedEvent
+                    {
+                        EntityId = processData.Id,
+                        StatusCode = "Completed",
+                        StatusName = "Завершено"
+                    }, cancellationToken);
+                }
+                await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
+                {
+                    EntityId = processData.Id,
+                    BlockCode = blockResult.BlockCode,
+                    BlockName = blockResult.BlockName
+                }, cancellationToken);
+return processTaskService.SuccessResponse(blockResult.BlockCode, blockResult.BlockName);
+            }
+
+            var parentCreatedEvent = await processTaskService.CreateParentIfNeededAsync(recipients, nextBlock, processData, command, comment, cancellationToken);
+await processTaskService.CreateTasksAsync(nextBlock.Id, nextBlock.BlockCode, nextBlock.BlockName, recipients, processData, command, parentCreatedEvent?.EntityId, cancellationToken);
+
+await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
+{
+    EntityId = processData.Id,
+    BlockCode = nextBlock.BlockCode,
+    BlockName = nextBlock.BlockName
+}, cancellationToken);
+
+return processTaskService.SuccessResponse(nextBlock.BlockCode, nextBlock.BlockName);
+        }
+         */
+        public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
+        {
+            if (payload == null || !payload.TryGetValue(key, out var value))
+                return default;
+
+            var json = JsonSerializer.Serialize(value);
+            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+
+        private static bool TryReadSequenceFlag(Dictionary<string, object>? payload)
+        {
+            if (payload == null) return false;
+            try
+            {
+                if (!payload.TryGetValue("sysInfo", out var sysInfoRaw) || sysInfoRaw == null)
+                    return false;
+
+                var json = JsonSerializer.Serialize(sysInfoRaw);
+                var sysInfo = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+                if (sysInfo != null && sysInfo.TryGetValue("sequence", out var seqRaw))
+                {
+                    var seqJson = JsonSerializer.Serialize(seqRaw);
+                    var seq = JsonSerializer.Deserialize<bool?>(seqJson);
+                    return seq == true;
+                }
+            }
+            catch
+            {
+                /* игнор, считаем false */
+            }
+
+            return false;
+        }
     }
 }
-  И смотри если ну он почему должен заходит в ProcessTaskHistoryEntity потому что если 3 человек 2 изних соглосовали а 1 изних нет то тогда надо удет fasle
+
+
