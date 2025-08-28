@@ -1,692 +1,135 @@
+// Shared/Queries/Process
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
 
-{
-  "data": [
-    {
-      "id": "8716c452-bf73-4f0c-89b1-7be9f41da090",
-      "processDataId": "21639d53-ce9a-492e-a9bd-b133d07a86b3",
-      "regNumber": "AC-0026-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 1",
-      "created": "2025-07-01T12:33:05.124547",
-      "files": null
-    },
-    {
-      "id": "a8cea9d4-0690-4666-a5b2-3150bb6b0589",
-      "processDataId": "dd8b6821-3782-40aa-aabc-94fc9fd147f9",
-      "regNumber": "AC-0027-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 2",
-      "created": "2025-07-01T12:35:04.861728",
-      "files": null
-    },
-    {
-      "id": "3a5b80ca-bfb2-4eb4-af9e-b48e03e482a4",
-      "processDataId": "bfd81925-b8c4-4896-93c4-df7ec08cf975",
-      "regNumber": "AC-0028-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 3",
-      "created": "2025-07-01T12:38:33.735702",
-      "files": null
-    },
-    {
-      "id": "7212e5e9-52ee-4819-8413-06420808f649",
-      "processDataId": "26321ebe-d9a9-4f4f-9f6f-cdd48f4d9562",
-      "regNumber": "AC-0029-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 4",
-      "created": "2025-07-01T12:46:38.656438",
-      "files": null
-    },
-    {
-      "id": "58216179-7f08-4dc8-b74d-974f0462022a",
-      "processDataId": "d4349309-38de-4aaf-9ce1-5c07c63f2864",
-      "regNumber": "AC-0030-2025",
-      "blockCode": "CoExecutors",
-      "blockName": "Соисполнители",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Меииржан",
-      "initiatorCode": "a.aristombekov",
-      "initiatorName": "Аристомбеков Арстан Рамазанулы",
-      "title": "Модернизация и поддержание в актуальном состоянии внешнего веб-сайта, включая личный кабинет, мобильного приложения, электронных сервисов Фонда, терминалов самообслуживания, VTM-терминалов,\nинфокиосков, \nинтеграции с вешними системами, в том числе WEB-сервис выдачи выписки с ИПС через шлюз Электронного Правительства (egov), Видеоконсультант (цифровой офис) \n",
-      "created": "2025-07-08T11:48:48.105728",
-      "files": null
-    },
-    {
-      "id": "4c4985c0-99b4-4a35-b7e0-a8e39ff4bae3",
-      "processDataId": "ce361cd9-1691-44b3-a195-1a2a0fadb4e5",
-      "regNumber": "ME-0021-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-07T13:19:29.03365",
-      "files": null
-    },
-    {
-      "id": "c36fd911-8557-4324-92d3-17ef388a6b42",
-      "processDataId": "82ea96da-a913-46f3-9792-ec2e8aa09602",
-      "regNumber": "ME-0044-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T14:20:58.80785",
-      "files": null
-    },
-    {
-      "id": "cf4ea511-ccf1-4817-9e55-fa0f0d41f7c0",
-      "processDataId": "dc6bf21e-92e2-4988-821b-c4df606c296c",
-      "regNumber": "ME-0046-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T15:56:33.652459",
-      "files": null
-    },
-    {
-      "id": "6c205d7b-625c-423b-af43-44b51bbfbf88",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:15:29.99704",
-      "files": null
-    },
-    {
-      "id": "000bf5df-e7bd-4de0-bb88-ef76ca20890f",
-      "processDataId": "21dedc96-36f8-4da9-8802-90cbab80f233",
-      "regNumber": "ME-0049-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T18:59:32.250686",
-      "files": null
-    },
-    {
-      "id": "68396460-5207-427d-bf3b-1a319f6f366e",
-      "processDataId": "945f9c50-2945-4618-a7d5-a0ea30577d5d",
-      "regNumber": "ME-0051-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T19:05:10.634258",
-      "files": null
-    },
-    {
-      "id": "37071a2c-979d-400d-935c-522b9affa0a6",
-      "processDataId": "e8c6e436-bfcd-479b-b4b9-2c699c97e2d8",
-      "regNumber": "ME-0053-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T11:59:33.606512",
-      "files": null
-    },
-    {
-      "id": "7b2426ee-bda4-4114-b286-fc9800e4dd14",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:02:09.704481",
-      "files": null
-    },
-    {
-      "id": "7d305ad8-f0c8-4031-a774-6b014958d423",
-      "processDataId": "91ce9755-4323-48e5-9f8d-ed00aa60b6fc",
-      "regNumber": "ME-0058-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-14T18:13:18.579634",
-      "files": null
-    }
-  ],
-  "message": null,
-  "errorCode": null
+public sealed class GetUserTasksApprovalQuery       : IRequest<BaseResponseDto<List<GetUserTasksResponse>>> { public string UserCode { get; set; } = default!; }
+public sealed class GetUserTasksSigningQuery        : IRequest<BaseResponseDto<List<GetUserTasksResponse>>> { public string UserCode { get; set; } = default!; }
+public sealed class GetUserTasksExecutionQuery      : IRequest<BaseResponseDto<List<GetUserTasksResponse>>> { public string UserCode { get; set; } = default!; }
+public sealed class GetUserTasksExecutionCheckQuery : IRequest<BaseResponseDto<List<GetUserTasksResponse>>> { public string UserCode { get; set; } = default!; }
 
+
+
+using AutoMapper;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using Microsoft.Extensions.Caching.Memory;
+
+public abstract class GetUserTasksByStageBaseHandler<TRequest>
+    : IRequestHandler<TRequest, BaseResponseDto<List<GetUserTasksResponse>>>
+    where TRequest : IRequest<BaseResponseDto<List<GetUserTasksResponse>>>
 {
-  "data": [
+    private readonly IMapper _mapper;
+    private readonly IUnitOfWork _uow;
+    private readonly IMemoryCache _cache;
+    private readonly string _stageCode; // "Approval" | "Signing" | "Execution" | "ExecutionCheck"
+
+    protected GetUserTasksByStageBaseHandler(IMapper mapper, IUnitOfWork uow, IMemoryCache cache, string stageCode)
+    { _mapper = mapper; _uow = uow; _cache = cache; _stageCode = stageCode; }
+
+    private static string GetUserCode(TRequest req)
+        => (string?)typeof(TRequest).GetProperty("UserCode")?.GetValue(req) 
+           ?? throw new InvalidOperationException("UserCode is required");
+
+    public async Task<BaseResponseDto<List<GetUserTasksResponse>>> Handle(TRequest request, CancellationToken ct)
     {
-      "id": "8716c452-bf73-4f0c-89b1-7be9f41da090",
-      "processDataId": "21639d53-ce9a-492e-a9bd-b133d07a86b3",
-      "regNumber": "AC-0026-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 1",
-      "created": "2025-07-01T12:33:05.124547",
-      "files": null
-    },
-    {
-      "id": "a8cea9d4-0690-4666-a5b2-3150bb6b0589",
-      "processDataId": "dd8b6821-3782-40aa-aabc-94fc9fd147f9",
-      "regNumber": "AC-0027-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 2",
-      "created": "2025-07-01T12:35:04.861728",
-      "files": null
-    },
-    {
-      "id": "3a5b80ca-bfb2-4eb4-af9e-b48e03e482a4",
-      "processDataId": "bfd81925-b8c4-4896-93c4-df7ec08cf975",
-      "regNumber": "AC-0028-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 3",
-      "created": "2025-07-01T12:38:33.735702",
-      "files": null
-    },
-    {
-      "id": "7212e5e9-52ee-4819-8413-06420808f649",
-      "processDataId": "26321ebe-d9a9-4f4f-9f6f-cdd48f4d9562",
-      "regNumber": "AC-0029-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 4",
-      "created": "2025-07-01T12:46:38.656438",
-      "files": null
-    },
-    {
-      "id": "58216179-7f08-4dc8-b74d-974f0462022a",
-      "processDataId": "d4349309-38de-4aaf-9ce1-5c07c63f2864",
-      "regNumber": "AC-0030-2025",
-      "blockCode": "CoExecutors",
-      "blockName": "Соисполнители",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Меииржан",
-      "initiatorCode": "a.aristombekov",
-      "initiatorName": "Аристомбеков Арстан Рамазанулы",
-      "title": "Модернизация и поддержание в актуальном состоянии внешнего веб-сайта, включая личный кабинет, мобильного приложения, электронных сервисов Фонда, терминалов самообслуживания, VTM-терминалов,\nинфокиосков, \nинтеграции с вешними системами, в том числе WEB-сервис выдачи выписки с ИПС через шлюз Электронного Правительства (egov), Видеоконсультант (цифровой офис) \n",
-      "created": "2025-07-08T11:48:48.105728",
-      "files": null
-    },
-    {
-      "id": "4c4985c0-99b4-4a35-b7e0-a8e39ff4bae3",
-      "processDataId": "ce361cd9-1691-44b3-a195-1a2a0fadb4e5",
-      "regNumber": "ME-0021-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-07T13:19:29.03365",
-      "files": null
-    },
-    {
-      "id": "c36fd911-8557-4324-92d3-17ef388a6b42",
-      "processDataId": "82ea96da-a913-46f3-9792-ec2e8aa09602",
-      "regNumber": "ME-0044-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T14:20:58.80785",
-      "files": null
-    },
-    {
-      "id": "cf4ea511-ccf1-4817-9e55-fa0f0d41f7c0",
-      "processDataId": "dc6bf21e-92e2-4988-821b-c4df606c296c",
-      "regNumber": "ME-0046-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T15:56:33.652459",
-      "files": null
-    },
-    {
-      "id": "6c205d7b-625c-423b-af43-44b51bbfbf88",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:15:29.99704",
-      "files": null
-    },
-    {
-      "id": "000bf5df-e7bd-4de0-bb88-ef76ca20890f",
-      "processDataId": "21dedc96-36f8-4da9-8802-90cbab80f233",
-      "regNumber": "ME-0049-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T18:59:32.250686",
-      "files": null
-    },
-    {
-      "id": "68396460-5207-427d-bf3b-1a319f6f366e",
-      "processDataId": "945f9c50-2945-4618-a7d5-a0ea30577d5d",
-      "regNumber": "ME-0051-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T19:05:10.634258",
-      "files": null
-    },
-    {
-      "id": "37071a2c-979d-400d-935c-522b9affa0a6",
-      "processDataId": "e8c6e436-bfcd-479b-b4b9-2c699c97e2d8",
-      "regNumber": "ME-0053-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T11:59:33.606512",
-      "files": null
-    },
-    {
-      "id": "7b2426ee-bda4-4114-b286-fc9800e4dd14",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:02:09.704481",
-      "files": null
-    },
-    {
-      "id": "7d305ad8-f0c8-4031-a774-6b014958d423",
-      "processDataId": "91ce9755-4323-48e5-9f8d-ed00aa60b6fc",
-      "regNumber": "ME-0058-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-14T18:13:18.579634",
-      "files": null
+        var userCode = GetUserCode(request);
+        var userLower = userCode.ToLowerInvariant();
+        var cacheKey = $"tasks:{_stageCode}:{userLower}";
+
+        if (_cache.TryGetValue(cacheKey, out List<GetUserTasksResponse> cached))
+            return new() { Data = cached };
+
+        // свои Pending по нужному этапу
+        var own = await _uow.ProcessTaskRepository.GetByFilterListAsync(
+            ct,
+            p => p.AssigneeCode != null
+                 && p.AssigneeCode.ToLower() == userLower
+                 && p.Status == "Pending"
+                 && p.BlockCode != null
+                 && string.Equals(p.BlockCode, _stageCode, StringComparison.Ordinal));
+
+        var all = new List<ProcessTaskEntity>(own);
+
+        // замещение
+        var asDeputy = await _uow.DelegationRepository.GetByFilterListAsync(ct, d => d.DeputyUserCode.ToLower() == userLower);
+        if (asDeputy.Any())
+        {
+            var principals = asDeputy.Select(d => d.PrincipalUserCode.ToLower()).Distinct().ToList();
+            var principalTasks = await _uow.ProcessTaskRepository.GetByFilterListAsync(
+                ct,
+                p => p.AssigneeCode != null
+                     && principals.Contains(p.AssigneeCode.ToLower())
+                     && p.Status == "Pending"
+                     && p.BlockCode != null
+                     && string.Equals(p.BlockCode, _stageCode, StringComparison.Ordinal));
+            all.AddRange(principalTasks);
+        }
+
+        var response = _mapper.Map<List<GetUserTasksResponse>>(all);
+        _cache.Set(cacheKey, response, TimeSpan.FromHours(1));
+        return new() { Data = response };
     }
-  ],
-  "message": null,
-  "errorCode": null
 }
 
+
+
+using AutoMapper;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using Microsoft.Extensions.Caching.Memory;
+
+public sealed class GetUserTasksApprovalQueryHandler
+  : GetUserTasksByStageBaseHandler<GetUserTasksApprovalQuery>,
+    IRequestHandler<GetUserTasksApprovalQuery, BaseResponseDto<List<GetUserTasksResponse>>>
 {
-  "data": [
-    {
-      "id": "8716c452-bf73-4f0c-89b1-7be9f41da090",
-      "processDataId": "21639d53-ce9a-492e-a9bd-b133d07a86b3",
-      "regNumber": "AC-0026-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 1",
-      "created": "2025-07-01T12:33:05.124547",
-      "files": null
-    },
-    {
-      "id": "a8cea9d4-0690-4666-a5b2-3150bb6b0589",
-      "processDataId": "dd8b6821-3782-40aa-aabc-94fc9fd147f9",
-      "regNumber": "AC-0027-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 2",
-      "created": "2025-07-01T12:35:04.861728",
-      "files": null
-    },
-    {
-      "id": "3a5b80ca-bfb2-4eb4-af9e-b48e03e482a4",
-      "processDataId": "bfd81925-b8c4-4896-93c4-df7ec08cf975",
-      "regNumber": "AC-0028-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 3",
-      "created": "2025-07-01T12:38:33.735702",
-      "files": null
-    },
-    {
-      "id": "7212e5e9-52ee-4819-8413-06420808f649",
-      "processDataId": "26321ebe-d9a9-4f4f-9f6f-cdd48f4d9562",
-      "regNumber": "AC-0029-2025",
-      "blockCode": "ApproverSelection",
-      "blockName": "Выбор согласующих",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "l.iskender",
-      "initiatorName": "Искендер Лесхан Муратұлы",
-      "title": "Меииржан тест 4",
-      "created": "2025-07-01T12:46:38.656438",
-      "files": null
-    },
-    {
-      "id": "58216179-7f08-4dc8-b74d-974f0462022a",
-      "processDataId": "d4349309-38de-4aaf-9ce1-5c07c63f2864",
-      "regNumber": "AC-0030-2025",
-      "blockCode": "CoExecutors",
-      "blockName": "Соисполнители",
-      "processCode": "Activity",
-      "processName": "Мероприятия",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Меииржан",
-      "initiatorCode": "a.aristombekov",
-      "initiatorName": "Аристомбеков Арстан Рамазанулы",
-      "title": "Модернизация и поддержание в актуальном состоянии внешнего веб-сайта, включая личный кабинет, мобильного приложения, электронных сервисов Фонда, терминалов самообслуживания, VTM-терминалов,\nинфокиосков, \nинтеграции с вешними системами, в том числе WEB-сервис выдачи выписки с ИПС через шлюз Электронного Правительства (egov), Видеоконсультант (цифровой офис) \n",
-      "created": "2025-07-08T11:48:48.105728",
-      "files": null
-    },
-    {
-      "id": "4c4985c0-99b4-4a35-b7e0-a8e39ff4bae3",
-      "processDataId": "ce361cd9-1691-44b3-a195-1a2a0fadb4e5",
-      "regNumber": "ME-0021-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-07T13:19:29.03365",
-      "files": null
-    },
-    {
-      "id": "c36fd911-8557-4324-92d3-17ef388a6b42",
-      "processDataId": "82ea96da-a913-46f3-9792-ec2e8aa09602",
-      "regNumber": "ME-0044-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T14:20:58.80785",
-      "files": null
-    },
-    {
-      "id": "cf4ea511-ccf1-4817-9e55-fa0f0d41f7c0",
-      "processDataId": "dc6bf21e-92e2-4988-821b-c4df606c296c",
-      "regNumber": "ME-0046-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T15:56:33.652459",
-      "files": null
-    },
-    {
-      "id": "6c205d7b-625c-423b-af43-44b51bbfbf88",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:15:29.99704",
-      "files": null
-    },
-    {
-      "id": "000bf5df-e7bd-4de0-bb88-ef76ca20890f",
-      "processDataId": "21dedc96-36f8-4da9-8802-90cbab80f233",
-      "regNumber": "ME-0049-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T18:59:32.250686",
-      "files": null
-    },
-    {
-      "id": "68396460-5207-427d-bf3b-1a319f6f366e",
-      "processDataId": "945f9c50-2945-4618-a7d5-a0ea30577d5d",
-      "regNumber": "ME-0051-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-12T19:05:10.634258",
-      "files": null
-    },
-    {
-      "id": "37071a2c-979d-400d-935c-522b9affa0a6",
-      "processDataId": "e8c6e436-bfcd-479b-b4b9-2c699c97e2d8",
-      "regNumber": "ME-0053-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T11:59:33.606512",
-      "files": null
-    },
-    {
-      "id": "7b2426ee-bda4-4114-b286-fc9800e4dd14",
-      "processDataId": "3e01e6de-64e9-4232-aa0d-fda2a6fc4791",
-      "regNumber": "ME-0054-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-13T12:02:09.704481",
-      "files": null
-    },
-    {
-      "id": "7d305ad8-f0c8-4031-a774-6b014958d423",
-      "processDataId": "91ce9755-4323-48e5-9f8d-ed00aa60b6fc",
-      "regNumber": "ME-0058-2025",
-      "blockCode": "Approval",
-      "blockName": "Согласование",
-      "processCode": "Memo",
-      "processName": "Служебная записка",
-      "assigneeCode": "m.ilespayev",
-      "assigneeName": "Илеспаев Меииржан Анварович",
-      "initiatorCode": "b.shymkentbay",
-      "initiatorName": "Шымкентбай Бақытжан Бахтиярұлы",
-      "title": "тема документа",
-      "created": "2025-08-14T18:13:18.579634",
-      "files": null
-    }
-  ],
-  "message": null,
-  "errorCode": null
+    public GetUserTasksApprovalQueryHandler(IMapper m, IUnitOfWork u, IMemoryCache c) : base(m, u, c, "Approval") { }
 }
+
+public sealed class GetUserTasksSigningQueryHandler
+  : GetUserTasksByStageBaseHandler<GetUserTasksSigningQuery>,
+    IRequestHandler<GetUserTasksSigningQuery, BaseResponseDto<List<GetUserTasksResponse>>>
+{
+    public GetUserTasksSigningQueryHandler(IMapper m, IUnitOfWork u, IMemoryCache c) : base(m, u, c, "Signing") { }
+}
+
+public sealed class GetUserTasksExecutionQueryHandler
+  : GetUserTasksByStageBaseHandler<GetUserTasksExecutionQuery>,
+    IRequestHandler<GetUserTasksExecutionQuery, BaseResponseDto<List<GetUserTasksResponse>>>
+{
+    public GetUserTasksExecutionQueryHandler(IMapper m, IUnitOfWork u, IMemoryCache c) : base(m, u, c, "Execution") { }
+}
+
+public sealed class GetUserTasksExecutionCheckQueryHandler
+  : GetUserTasksByStageBaseHandler<GetUserTasksExecutionCheckQuery>,
+    IRequestHandler<GetUserTasksExecutionCheckQuery, BaseResponseDto<List<GetUserTasksResponse>>>
+{
+    public GetUserTasksExecutionCheckQueryHandler(IMapper m, IUnitOfWork u, IMemoryCache c) : base(m, u, c, "ExecutionCheck") { }
+}
+
+
+
+
+
+
+[HttpPost("tasks/approval")]
+public async Task<IActionResult> GetApproval([FromBody] GetUserTasksQuery q, CancellationToken ct)
+    => Ok(await mediator.Send(new GetUserTasksApprovalQuery { UserCode = q.UserCode }, ct));
+
+[HttpPost("tasks/signing")]
+public async Task<IActionResult> GetSigning([FromBody] GetUserTasksQuery q, CancellationToken ct)
+    => Ok(await mediator.Send(new GetUserTasksSigningQuery { UserCode = q.UserCode }, ct));
+
+[HttpPost("tasks/execution")]
+public async Task<IActionResult> GetExecution([FromBody] GetUserTasksQuery q, CancellationToken ct)
+    => Ok(await mediator.Send(new GetUserTasksExecutionQuery { UserCode = q.UserCode }, ct));
+
+[HttpPost("tasks/execution-check")]
+public async Task<IActionResult> GetExecutionCheck([FromBody] GetUserTasksQuery q, CancellationToken ct)
+    => Ok(await mediator.Send(new GetUserTasksExecutionCheckQuery { UserCode = q.UserCode }, ct));
+
