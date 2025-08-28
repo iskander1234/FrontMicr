@@ -1,55 +1,35 @@
-var alreadyLoggedAndFinalized = false;
+var parentTask = await unitOfWork.ProcessTaskRepository.GetByIdAsync(cancellationToken, currentTask.ParentTaskId.Value);
 
-if (isSequential)
+if (parentTask.AssigneeCode == "system")
 {
-    if (currentTask.ParentTaskId is null)
-        throw new HandlerException("У задачи не указан родитель", ErrorCodesEnum.Business);
+    var claimedTasksResponse =
+        await camundaService.CamundaClaimedTasks(processData.ProcessInstanceId, parentTask.BlockCode)
+        ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
 
-    var parent = await unitOfWork.ProcessTaskRepository.GetByIdAsync(cancellationToken, currentTask.ParentTaskId.Value);
-    if (!Enum.TryParse<ProcessStage>(parent.BlockCode, out var stage))
-        throw new InvalidOperationException($"Unknown process stage: {parent.BlockCode}");
+    if (!Enum.TryParse<ProcessStage>(parentTask.BlockCode, out var stageForCamunda))
+        throw new InvalidOperationException($"Unknown process stage: {parentTask.BlockCode}");
 
-    var siblings = await unitOfWork.ProcessTaskRepository
-        .GetByFilterListAsync(cancellationToken, t => t.ParentTaskId == parent.Id);
+    var variables = await BuildCamundaVariablesAsync(
+        stageForCamunda,
+        command.Condition,
+        command.Action,
+        processData.Id,
+        parentTask.Id,
+        unitOfWork,
+        cancellationToken);
 
-    await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-    await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-    alreadyLoggedAndFinalized = true;
+    var submitResponse = await camundaService.CamundaSubmitTask(
+        new CamundaSubmitTaskRequest { TaskId = claimedTasksResponse.TaskId, Variables = variables });
 
-    bool isNegative = stage switch
+    if (!submitResponse.Success)
+        throw new HandlerException($"Ошибка при отправке Msg:{submitResponse.Msg}", ErrorCodesEnum.Camunda);
+
+    if (!alreadyLoggedAndFinalized)
     {
-        ProcessStage.Rework  => command.Action == ProcessAction.Cancel,
-        ProcessStage.Signing => command.Action == ProcessAction.Reject,
-        _ => command.Condition is ProcessCondition.remake or ProcessCondition.reject
-    };
-
-    if (isNegative)
-    {
-        foreach (var s in siblings.Where(t => t.Status == "Waiting" || t.Status == "Pending"))
-            await processTaskService.FinalizeTaskAsync(s, cancellationToken);
-        // падаем дальше к Camunda
+        await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
+        await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
     }
-    else
-    {
-        var next = siblings
-            .Where(t => t.Status == "Waiting")
-            .OrderBy(t => t.Order ?? int.MaxValue)
-            .ThenBy(t => t.Created)
-            .FirstOrDefault();
+    await processTaskService.FinalizeTaskAsync(parentTask, cancellationToken);
 
-        if (next != null)
-        {
-            await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
-            {
-                EntityId = next.Id,
-                Status = "Pending"
-            }, cancellationToken);
-
-            return new BaseResponseDto<SendProcessResponse>
-            {
-                Data = new SendProcessResponse { Success = true }
-            };
-        }
-        // если «очередников» больше нет — идём к Camunda
-    }
+    return new BaseResponseDto<SendProcessResponse> { Data = new SendProcessResponse { Success = true } };
 }
