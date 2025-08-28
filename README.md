@@ -1,4 +1,25 @@
-using AutoMapper;
+Надо написать 4 класса также из ProcessTaskEntity сравниваем  public string ProcessCode { get; set; } с      public enum ProcessStage
+    {
+        /// <summary>
+        /// Согласование
+        /// </summary>
+        Approval,
+
+        /// <summary>
+        /// Подписание
+        /// </summary>
+        Signing,
+
+        /// <summary>
+        /// Исполнение
+        /// </summary>
+        Execution,
+
+        /// <summary>
+        /// Проверка исполнения
+        /// </summary>
+        ExecutionCheck,
+ этими 4 нужно создать 4 класса как тот GetUserTasksQueryHandler но они должны называться GetUserTasksApprovalQueryHandler GetUserTasksSigningQueryHandler GetUserTasksExecutionQueryHandler GetUserTasksExecutionCheckQueryHandler using AutoMapper;
 using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Shared.Dtos;
@@ -66,3 +87,24 @@ public class GetUserTasksQueryHandler(
         return new BaseResponseDto<List<GetUserTasksResponse>> { Data = responseList };
     }
 }
+
+
+  /// <summary>
+        /// Метод получения заявок по пользователю
+        /// </summary>
+        /// <param name="query">Запрос получения заявок по пользователю</param>
+        /// <param name="cancellationToken">Маркер отмены, используемый для отмены HTTP-запроса.</param>
+        /// <returns></returns>
+        [HttpPost("getusertasks")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Данные успешно получены", typeof(BaseResponseDto<List<GetUserTasksResponse>>))]
+        [SwaggerResponse(StatusCodes.Status404NotFound)]
+        [SwaggerResponse(StatusCodes.Status400BadRequest)]
+        [SwaggerResponse(StatusCodes.Status409Conflict)]
+        [SwaggerResponse(StatusCodes.Status500InternalServerError)]
+        [SwaggerResponse(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> GetUserTasksAsync([FromBody] GetUserTasksQuery query, CancellationToken cancellationToken)
+        {
+            var result = await mediator.Send(query, cancellationToken);
+
+            return Ok(result);
+        }
