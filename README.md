@@ -1,49 +1,73 @@
-var parentTask =
-    await unitOfWork.ProcessTaskRepository.GetByIdAsync(cancellationToken, currentTask.ParentTaskId.Value);
+using AutoMapper;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using Microsoft.Extensions.Caching.Memory;
 
-if (parentTask.AssigneeCode == "system")
+namespace BpmBaseApi.Application.QueryHandlers.Process;
+
+public abstract class GetUserTasksByStageBaseHandler<TRequest>
+    : IRequestHandler<TRequest, BaseResponseDto<List<GetUserTasksResponse>>>
+    where TRequest : IRequest<BaseResponseDto<List<GetUserTasksResponse>>>
 {
-    // ... тут всё ок: ты сабмитишь в Camunda и ПОТОМ делаешь
-    // LogHistoryAsync(currentTask) + FinalizeTaskAsync(currentTask) + FinalizeTaskAsync(parentTask)
-    return Success;
+    private readonly IMapper _mapper;
+    private readonly IUnitOfWork _uow;
+    private readonly IMemoryCache _cache;
+    private readonly string _stageCode; // "Approval" | "Signing" | "Execution" | "ExecutionCheck"
+
+    protected GetUserTasksByStageBaseHandler(IMapper mapper, IUnitOfWork uow, IMemoryCache cache, string stageCode)
+    { _mapper = mapper; _uow = uow; _cache = cache; _stageCode = stageCode; }
+
+    private static string GetUserCode(TRequest req)
+        => (string?)typeof(TRequest).GetProperty("UserCode")?.GetValue(req)
+           ?? throw new InvalidOperationException("UserCode is required");
+
+    public async Task<BaseResponseDto<List<GetUserTasksResponse>>> Handle(TRequest request, CancellationToken ct)
+    {
+        var userCode = GetUserCode(request);
+        var userLower = userCode.ToLowerInvariant();
+        var cacheKey = $"tasks:{_stageCode}:{userLower}";
+
+        if (_cache.TryGetValue(cacheKey, out List<GetUserTasksResponse> cached))
+            return new() { Data = cached };
+
+        // СВОИ Pending по нужному этапу
+        var own = await _uow.ProcessTaskRepository.GetByFilterListAsync(
+            ct,
+            p => p.AssigneeCode != null
+                 && p.AssigneeCode.ToLower() == userLower
+                 && p.Status == "Pending"
+                 && p.BlockCode == _stageCode   // <-- ВАЖНО: без StringComparison
+        );
+
+        var all = new List<ProcessTaskEntity>(own);
+
+        // ЗАМЕСТИТЕЛЬ
+        var asDeputy = await _uow.DelegationRepository.GetByFilterListAsync(
+            ct, d => d.DeputyUserCode.ToLower() == userLower);
+
+        if (asDeputy.Any())
+        {
+            var principals = asDeputy
+                .Select(d => d.PrincipalUserCode.ToLower())
+                .Distinct()
+                .ToList();
+
+            var principalTasks = await _uow.ProcessTaskRepository.GetByFilterListAsync(
+                ct,
+                p => p.AssigneeCode != null
+                     && principals.Contains(p.AssigneeCode.ToLower())
+                     && p.Status == "Pending"
+                     && p.BlockCode == _stageCode   // <-- тоже простое сравнение
+            );
+
+            all.AddRange(principalTasks);
+        }
+
+        var response = _mapper.Map<List<GetUserTasksResponse>>(all);
+        _cache.Set(cacheKey, response, TimeSpan.FromHours(1));
+        return new() { Data = response };
+    }
 }
-
-// >>> ВОТ ЭТА ВЕТКА ! <<<
-await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
-{
-    EntityId = parentTask.Id,
-    Status = "Pending"
-}, cancellationToken);
-
-return Success;
-
-
-
-
-// ... выше код
-
-var parentTask =
-    await unitOfWork.ProcessTaskRepository.GetByIdAsync(cancellationToken, currentTask.ParentTaskId.Value);
-
-if (parentTask.AssigneeCode == "system")
-{
-    // всё как у тебя было — ок
-    // LogHistory + Finalize(currentTask) + Finalize(parentTask)
-    // return
-}
-
-// <-- ДОБАВЬ ЭТО:
-await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-
-// поднимаем родителя
-await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
-{
-    EntityId = parentTask.Id,
-    Status = "Pending"
-}, cancellationToken);
-
-return new BaseResponseDto<SendProcessResponse>
-{
-    Data = new SendProcessResponse { Success = true }
-};
