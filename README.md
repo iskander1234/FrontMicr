@@ -87,36 +87,3 @@ public abstract class GetUserTasksByStageBaseHandler<TRequest>
 }
 
 
-public async Task RefreshUserTaskCacheAsync(string userCode, CancellationToken ct)
-{
-    var u = userCode.ToLowerInvariant();
-
-    // общий (если где-то используется старый список без стадий)
-    _cache.Remove(GetUserTasksByStageBaseHandler<IRequest<BaseResponseDto<List<GetUserTasksResponse>>>>.BuildCacheKey(u, null));
-
-    // по стадиям
-    foreach (var stage in GetUserTasksByStageBaseHandler<IRequest<BaseResponseDto<List<GetUserTasksResponse>>>>.StageCodes)
-    {
-        _cache.Remove(GetUserTasksByStageBaseHandler<IRequest<BaseResponseDto<List<GetUserTasksResponse>>>>.BuildCacheKey(u, stage));
-    }
-
-    await Task.CompletedTask;
-}
-
-
-
-
-
-
-await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-try
-{
-    await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-}
-catch { /* best effort */ }
-
-
-
-
-
-
