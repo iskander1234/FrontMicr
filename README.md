@@ -1,28 +1,36 @@
-  public async Task FinalizeTaskAsync(ProcessTaskEntity task, CancellationToken cancellationToken)
-        {
-            await unitOfWork.ProcessTaskRepository.DeleteByIdAsync(task.Id, cancellationToken);
-            await RefreshUserTaskCacheAsync(task.AssigneeCode, cancellationToken);
-        }
-        
-        
-        public async Task RefreshUserTaskCacheAsync(string userCode, CancellationToken cancellationToken)
-        {
-            var userLower = userCode.ToLower();
+public async Task RefreshUserTaskCacheAsync(string? userCode, CancellationToken ct)
+{
+    if (string.IsNullOrWhiteSpace(userCode)) return;
 
-            var updatedTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-                cancellationToken,
-                p => p.AssigneeCode.ToLower() == userLower && p.Status == "Pending"
-            );
+    var userKey = Normalize(userCode);
 
-            var mapped = mapper.Map<List<GetUserTasksResponse>>(updatedTasks);
+    // 1) Снести старые ключи
+    cache.Remove($"tasks:{userKey}");
+    var stagesIndexKey = $"tasks:{userKey}:__stages";
+    if (cache.TryGetValue<string[]>(stagesIndexKey, out var oldStageKeys) && oldStageKeys is not null)
+    {
+        foreach (var k in oldStageKeys) cache.Remove(k);
+        cache.Remove(stagesIndexKey);
+    }
 
-            // общий ключ (как у тебя было)
-            cache.Set($"tasks:{userLower}", mapped, TimeSpan.FromHours(3));
+    // 2) Прочитать актуально из БД (желательно хранить AssigneeCode уже нормализованным)
+    var updatedTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
+        ct, p => p.AssigneeCode == userKey && p.Status == "Pending");
 
-            // отдельно по стадиям
-            foreach (var stageGroup in updatedTasks.GroupBy(t => t.BlockCode))
-            {
-                var mappedStage = mapper.Map<List<GetUserTasksResponse>>(stageGroup.ToList());
-                cache.Set($"tasks:{stageGroup.Key}:{userLower}", mappedStage, TimeSpan.FromHours(3));
-            }
-        }
+    var mapped = mapper.Map<List<GetUserTasksResponse>>(updatedTasks);
+
+    var ttl = TimeSpan.FromSeconds(45); // короткий TTL
+
+    cache.Set($"tasks:{userKey}", mapped, ttl);
+
+    // 3) Пересоздать ключи по стадиям и индекс стадий
+    var newStageKeys = new List<string>();
+    foreach (var grp in updatedTasks.GroupBy(t => t.BlockCode))
+    {
+        var stageKey = $"tasks:{grp.Key}:{userKey}";
+        var mappedStage = mapper.Map<List<GetUserTasksResponse>>(grp.ToList());
+        cache.Set(stageKey, mappedStage, ttl);
+        newStageKeys.Add(stageKey);
+    }
+    cache.Set(stagesIndexKey, newStageKeys.ToArray(), ttl);
+}
