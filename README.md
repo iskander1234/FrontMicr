@@ -1,80 +1,222 @@
-parentTask.AssigneeCode == "system"
+надо сделать так до   string key = request.Stage switch
+            {
+                ProcessStage.Approval => "approvers",
+                ProcessStage.Signing => "signer",
+                ProcessStage.Rework => "initiator",
+                ProcessStage.Execution => "recipients",
+                ProcessStage.ExecutionCheck => "initiator",
+                _ => throw new InvalidOperationException($"Unsupported process stage: {request.Stage}")
+            }; если ProcessStage Completed или Canceled вернуть  return new BaseResponseDto<SetProcessStageResponse> { Data = new SetProcessStageResponse() { Status = "Ok" } };
 
-await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-await processTaskService.FinalizeTaskAsync(parentTask, cancellationToken);
+using System.Text.Json;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Implementations;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using static BpmBaseApi.Shared.Models.Process.CommonData;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
-// 👇 ДОБАВЬ ЭТО — иначе у части пользователей висит старая карточка
-if (!string.IsNullOrWhiteSpace(currentTask.AssigneeCode))
-    await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode!, cancellationToken);
-
-return new BaseResponseDto<SendProcessResponse>
+namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    Data = new SendProcessResponse { Success = true }
-};
-
-
-public async Task FinalizeTaskAsync(ProcessTaskEntity task, CancellationToken cancellationToken)
-{
-    await unitOfWork.ProcessTaskRepository.DeleteByIdAsync(task.Id, cancellationToken);
-
-    // безопасно: null / пробелы игнорим
-    if (!string.IsNullOrWhiteSpace(task.AssigneeCode))
-        await RefreshUserTaskCacheAsync(task.AssigneeCode!, cancellationToken);
-}
-
-private static string NormalizeUser(string userCode)
-    => userCode.Trim().ToLowerInvariant();
-
-private static string UserRootKey(string userNorm)
-    => $"tasks:{userNorm}";
-
-private static string UserStagesIndexKey(string userNorm)
-    => $"tasks:{userNorm}:__stages";
-
-private static string StageKey(string stageCode, string userNorm)
-    => $"tasks:{stageCode}:{userNorm}";
-
-public async Task RefreshUserTaskCacheAsync(string userCode, CancellationToken cancellationToken)
-{
-    if (string.IsNullOrWhiteSpace(userCode)) return;
-
-    var userNorm = NormalizeUser(userCode);
-
-    // 1) Снести прошлые ключи, чтобы не висели «пустые стадии»
-    cache.Remove(UserRootKey(userNorm));
-    if (cache.TryGetValue<string[]>(UserStagesIndexKey(userNorm), out var oldStageKeys) && oldStageKeys is not null)
+    public class SetProcessStageCommandHandler(
+        IUnitOfWork unitOfWork,
+        IProcessTaskService processTaskService
+        ) : IRequestHandler<SetProcessStageCommand, BaseResponseDto<SetProcessStageResponse>>
     {
-        foreach (var k in oldStageKeys) cache.Remove(k);
-        cache.Remove(UserStagesIndexKey(userNorm));
+        public async Task<BaseResponseDto<SetProcessStageResponse>> Handle(SetProcessStageCommand request, CancellationToken cancellationToken)
+        {
+            var processData = await unitOfWork
+                .ProcessDataRepository
+                .GetByFilterAsync(
+                    cancellationToken,
+                    a => a.Id == request.ProcessGuid
+                );
+
+            if (processData is null)
+                return new BaseResponseDto<SetProcessStageResponse> { Data = new SetProcessStageResponse() { Status = "Ok" } };
+
+            var processStageInfo = await unitOfWork.RefProcessStageRepository
+                .GetByFilterAsync(
+                    cancellationToken,
+                    a => a.Code == request.Stage.ToString()
+                );
+
+            await unitOfWork
+                .ProcessDataRepository
+                .RaiseEvent(new ProcessDataBlockChangedEvent
+                {
+                    EntityId = processData.Id,
+                    BlockCode = processStageInfo.Code,
+                    BlockName = processStageInfo.Name,
+                }, cancellationToken);
+
+            var payloadDict = JsonSerializer.Deserialize<Dictionary<string, object>>(processData.PayloadJson);
+
+            string key = request.Stage switch
+            {
+                ProcessStage.Approval => "approvers",
+                ProcessStage.Signing => "signer",
+                ProcessStage.Rework => "initiator",
+                ProcessStage.Execution => "recipients",
+                ProcessStage.ExecutionCheck => "initiator",
+                _ => throw new InvalidOperationException($"Unsupported process stage: {request.Stage}")
+            };
+
+            var recipients = ExtractFromPayloadFlexible<UserDataDto>(payloadDict, key) ?? new();
+
+            // 1) читаем тип согласования из processData.approvalTypeCode
+            bool isSequential = ReadIsSequentialFromProcessData(payloadDict);
+
+            // 2) родительская system‑задача — как раньше
+            var systemTask = await processTaskService.CreateSystemTaskAsync(
+                processStageInfo.Code, processStageInfo.Name, processData, cancellationToken);
+
+            // 3) Если Approval и режим Sequentially — создаём детей Pending/Waiting и пишем Order
+            if (request.Stage == ProcessStage.Approval && isSequential)
+            {
+                var ordered = recipients
+                    .Select((r, idx) => new { Item = r, Index = idx })
+                    .OrderBy(x => x.Item.Order ?? int.MaxValue)
+                    .ThenBy(x => x.Item.UserCode ?? "")
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Item)
+                    .ToList();
+
+                int seq = 1;
+                bool isFirst = true;
+                foreach (var r in ordered)
+                {
+                    var assignee = r.UserCode; // loginAD -> UserCode
+                    if (string.IsNullOrWhiteSpace(assignee)) continue;
+
+                    await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskCreatedEvent
+                    {
+                        EntityId       = Guid.NewGuid(),
+                        ProcessDataId  = processData.Id,
+                        ParentTaskId   = systemTask.EntityId,
+
+                        ProcessCode    = processData.ProcessCode,
+                        ProcessName    = processData.ProcessName ?? "",
+                        RegNumber      = processData.RegNumber ?? "",
+                        InitiatorCode  = processData.InitiatorCode ?? "",
+                        InitiatorName  = processData.InitiatorName ?? "",
+                        Title          = processData.Title ?? "",
+
+                        AssigneeCode   = assignee.ToLowerInvariant(),
+                        AssigneeName   = r.UserName ?? "",
+                        BlockCode      = processStageInfo.Code,
+                        BlockName      = processStageInfo.Name,
+                        Status         = isFirst ? "Pending" : "Waiting",
+                        Order          = r.Order ?? seq
+                    }, cancellationToken);
+
+                    isFirst = false;
+                    seq++;
+                }
+            }
+            else
+            {
+                // 4) Иначе — параллельно, как было. Метод внутри уже пишет Order
+                await processTaskService.CreateTasksNewAsync(
+                    processStageInfo.Code, processStageInfo.Name,
+                    recipients, processData, systemTask.EntityId, cancellationToken);
+            }
+
+            return new BaseResponseDto<SetProcessStageResponse> { Data = new SetProcessStageResponse() { Status = "Ok" } };
+        }
+
+        public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
+        {
+            if (payload == null || !payload.TryGetValue(key, out var value))
+                return default;
+
+            var json = JsonSerializer.Serialize(value);
+            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+        }
+
+        private List<T> ExtractFromPayloadFlexible<T>(Dictionary<string, object> payload, string key)
+        {
+            if (!payload.TryGetValue(key, out var rawValue) || rawValue == null)
+                return new();
+
+            var json = JsonSerializer.Serialize(rawValue);
+
+            try
+            {
+                // Пытаемся десериализовать как список
+                return JsonSerializer.Deserialize<List<T>>(json) ?? new();
+            }
+            catch (JsonException)
+            {
+                try
+                {
+                    // Если не список — пробуем как одиночный объект и оборачиваем его в список
+                    var singleItem = JsonSerializer.Deserialize<T>(json);
+                    return singleItem != null ? new List<T> { singleItem } : new();
+                }
+                catch (JsonException ex)
+                {
+                    throw new JsonException($"Не удалось десериализовать поле '{key}' как {typeof(T)} или List<{typeof(T)}>", ex);
+                }
+            }
+        }
+        
+        private static bool TryReadSequenceFlag(Dictionary<string, object>? payload)
+        {
+            if (payload == null) return false;
+            try
+            {
+                if (!payload.TryGetValue("sysInfo", out var sysInfoRaw) || sysInfoRaw == null)
+                    return false;
+
+                var json = JsonSerializer.Serialize(sysInfoRaw);
+                var sysInfo = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+                if (sysInfo != null && sysInfo.TryGetValue("sequence", out var seqRaw))
+                {
+                    var seqJson = JsonSerializer.Serialize(seqRaw);
+                    var seq = JsonSerializer.Deserialize<bool?>(seqJson);
+                    return seq == true;
+                }
+            }
+            catch { /* игнор, считаем false */ }
+
+            return false;
+        }
+
+        /// <summary>
+        /// true, если processData.approvalTypeCode == "Sequentially" (без учёта регистра)
+        /// </summary>
+        private static bool ReadIsSequentialFromProcessData(Dictionary<string, object>? payload)
+        {
+            if (payload == null) return false;
+            try
+            {
+                if (!payload.TryGetValue("processData", out var pdRaw) || pdRaw is null) return false;
+
+                var json = JsonSerializer.Serialize(pdRaw);
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
+
+                if (pd != null && pd.TryGetValue("approvalTypeCode", out var typeRaw) && typeRaw is not null)
+                {
+                    var tJson = JsonSerializer.Serialize(typeRaw);
+                    var type = JsonSerializer.Deserialize<string>(tJson);
+                    return string.Equals(type, "Sequentially", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch { /* считаем Parallel */ }
+
+            return false;
+        }
     }
-
-    // 2) Прочитать актуальное Pending (защита от null в БД + case-insensitive)
-    var updatedTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-        cancellationToken,
-        p => p.AssigneeCode != null
-             && p.Status == "Pending"
-             && p.AssigneeCode.ToLower() == userNorm
-    );
-
-    var mappedAll = mapper.Map<List<GetUserTasksResponse>>(updatedTasks);
-
-    // TTL лучше короткий, но чтобы «не ломать» — вынесем в константу (можешь поставить minutes:1)
-    var ttl = TimeSpan.FromMinutes(1);
-
-    // 3) Положить общий ключ
-    cache.Set(UserRootKey(userNorm), mappedAll, ttl);
-
-    // 4) Разложить по стадиям + сохранить индекс стадий, чтобы в следующий раз удалить корректно
-    var newStageKeys = new List<string>();
-    foreach (var grp in updatedTasks.GroupBy(t => t.BlockCode))
-    {
-        var stageKey = StageKey(grp.Key, userNorm);
-        var mappedStage = mapper.Map<List<GetUserTasksResponse>>(grp.ToList());
-        cache.Set(stageKey, mappedStage, ttl);
-        newStageKeys.Add(stageKey);
-    }
-    cache.Set(UserStagesIndexKey(userNorm), newStageKeys.ToArray(), ttl);
 }
-
-
