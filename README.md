@@ -266,15 +266,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
 
         }
 
-        // private Dictionary<string, object> GetCamundaVariablesForStage(ProcessStage stage)
-        // {
-        //     return stage switch
-        //     {
-        //         ProcessStage.Approval => new() { { "agreement", true } },
-        //         ProcessStage.Signing => new() { { "sign", true } },
-        //         _ => new()
-        //     };
-        // }
+     
 
 
         private static string GetCamundaVarNameForStage(ProcessStage stage) => stage switch
@@ -287,30 +279,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             _ => "agreement" // безопасный дефолт
         };
 
-        // private static bool IsPositiveByCondition(ProcessCondition condition) =>
-        //     condition == ProcessCondition.accept;
-        //
-        // // Для Approval учитываем коллективное «вето»
-        // private static async Task<bool> IsApprovalPositiveConsideringHistoryAsync(
-        //     bool currentIsPositive,
-        //     Guid processDataId,
-        //     Guid? parentTaskId,
-        //     IUnitOfWork unitOfWork,
-        //     CancellationToken ct)
-        // {
-        //     if (!currentIsPositive) return false; // уже отрицательно — дальше не проверяем
-        //
-        //     // Ищем в истории по этому же раунду (ParentTaskId) любой remake/reject
-        //     var negativeCount = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
-        //         ct,
-        //         h => h.ProcessDataId == processDataId
-        //              && h.BlockCode == ProcessStage.Approval.ToString()
-        //              && h.ParentTaskId == parentTaskId
-        //              && (h.Condition == nameof(ProcessCondition.remake)
-        //                  || h.Condition == nameof(ProcessCondition.reject)));
-        //
-        //     return negativeCount == 0; // если были отрицательные — итог false
-        // }
+      
 
         private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
             ProcessStage stage,
@@ -414,85 +383,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             return negativeCount == 0;
         }
 
-        /*
-         public async Task<BaseResponseDto<SendProcessResponse>> Handle(SendProcessCommand command, CancellationToken cancellationToken)
-        {
-            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(cancellationToken,
-                p => p.Id == command.TaskId &&
-        p.Status == "Pending")
-                ?? throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
-
-        var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(cancellationToken, currentTask.ProcessDataId)
-            ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
-
-        var recipients = ExtractFromPayload<List<UserInfo>>(command.PayloadJson, "recipients") ?? new();
-        var comment = ExtractFromPayload<string>(command.PayloadJson, "comment");
-
-
-            // ===== Делегирование =====
-            if (command.Action == ProcessAction.Delegate && recipients.Any())
-            {
-                await processTaskService.HandleDelegationAsync(currentTask, processData, command, recipients, comment, cancellationToken);
-                //await processTaskService.LogHistoryAsync(currentTask, command, "", cancellationToken);
-                return processTaskService.SuccessResponse(currentTask.BlockCode, currentTask.BlockName);
-            }
-
-            // ===== Переход к следующему блоку =====
-            var currentBlock = await processTaskService.FindNextBlockAsync(
-                processData.ProcessId,
-                currentTask.BlockId,
-     rte           command.Action.ToString(),
-        command.Condition?.ToString(),
-        cancellationToken
-            ) ?? throw new HandlerException("Следующий блок не найден", ErrorCodesEnum.Business);
-
-        var nextBlock = await unitOfWork.BlockRepository.GetByFilterAsync(cancellationToken,
-            b => b.ProcessId == processData.ProcessId && b.Id == currentBlock.NextBlockId)
-            ?? throw new HandlerException("Подробности следующего блока не найдены", ErrorCodesEnum.Business);
-
-
-        // Завершение текущей подзадачи и проверка родителя
-        await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-        await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-            //await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-
-            recipients = await processTaskService.ResolveRecipientsAsync(processData.ProcessCode, nextBlock.BlockCode, recipients, cancellationToken);
-
-    var blockResult = await processTaskService.TryHandleParentTaskAsync(currentTask, currentBlock, nextBlock, processData, command, comment, recipients, cancellationToken);
-
-            if (blockResult?.Handled == true)
-            {
-                if (blockResult.BlockCode == "Completion")
-                {
-                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataStatusChangedEvent
-                    {
-                        EntityId = processData.Id,
-                        StatusCode = "Completed",
-                        StatusName = "Завершено"
-                    }, cancellationToken);
-                }
-                await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
-                {
-                    EntityId = processData.Id,
-                    BlockCode = blockResult.BlockCode,
-                    BlockName = blockResult.BlockName
-                }, cancellationToken);
-return processTaskService.SuccessResponse(blockResult.BlockCode, blockResult.BlockName);
-            }
-
-            var parentCreatedEvent = await processTaskService.CreateParentIfNeededAsync(recipients, nextBlock, processData, command, comment, cancellationToken);
-await processTaskService.CreateTasksAsync(nextBlock.Id, nextBlock.BlockCode, nextBlock.BlockName, recipients, processData, command, parentCreatedEvent?.EntityId, cancellationToken);
-
-await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
-{
-    EntityId = processData.Id,
-    BlockCode = nextBlock.BlockCode,
-    BlockName = nextBlock.BlockName
-}, cancellationToken);
-
-return processTaskService.SuccessResponse(nextBlock.BlockCode, nextBlock.BlockName);
-        }
-         */
+     
         public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
         {
             if (payload == null || !payload.TryGetValue(key, out var value))
