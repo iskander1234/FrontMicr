@@ -31,58 +31,63 @@ namespace BpmBaseApi.Application.QueryHandlers.Process
     }
 }
 
-using BpmBaseApi.Domain.Entities.AccessControl;
-using BpmBaseApi.Domain.Entities.Common;
-using BpmBaseApi.Domain.Entities.Employees;
-using BpmBaseApi.Domain.Entities.Process;
-using BpmBaseApi.Domain.Entities.Reference;
-using static Dapper.SqlMapper;
-
-namespace BpmBaseApi.Persistence.Interfaces
-{
-    public interface IUnitOfWork
+public class ProcessTaskEntity : BaseJournaledEntity
     {
-        void Commit();
-        // public ApplicationDbContext DbContext { get; }
-        Task CommitAsync(CancellationToken cancellationToken);
-        IJournaledGenericRepository<UserEntity> UserRepository { get; }
-        IJournaledGenericRepository<RoleEntity> RoleRepository { get; }
-        IJournaledGenericRepository<GroupEntity> GroupRepository { get; }
-        IJournaledGenericRepository<UserGroupEntity> UserGroupRepository { get; }
-        IJournaledGenericRepository<UserRoleEntity> UserRoleRepository { get; }
-        IJournaledGenericRepository<GroupRoleEntity> GroupRoleRepository { get; }
-        IJournaledGenericRepository<BlockEntity> BlockRepository { get; }
-        IJournaledGenericRepository<ProcessDataEntity> ProcessDataRepository { get; }
-        IJournaledGenericRepository<ProcessEntity> ProcessRepository { get; }
-        IJournaledGenericRepository<ProcessTaskEntity> ProcessTaskRepository { get; }
-        IJournaledGenericRepository<ProcessTaskHistoryEntity> ProcessTaskHistoryRepository { get; }
-        //IJournaledGenericRepository<RequestSequenceEntity> RequestSequenceRepository { get; }
-        IJournaledGenericRepository<RefProcessCategoryEntity> RefProcessCategoryRepository { get; }
-        IJournaledGenericRepository<RefProcessEntity> RefProcessRepository { get; }
-        IJournaledGenericRepository<RefInformationSystemEntity> RefInformationSystemRepository { get; }
-        IJournaledGenericRepository<WorkSessionEntity> WorkSessionRepository { get; }
-        IJournaledGenericRepository<WorkSessionLogEntity> WorkSessionLogRepository { get; }
-        IJournaledGenericRepository<RequestNumberCounterEntity> RequestNumberCounterRepository { get; }
-        IJournaledGenericRepository<MenuItemEntity> MenuItemRepository { get; }
-        IJournaledGenericRepository<RoleMenuEntity> RoleMenuRepository { get; }
-        IJournaledGenericRepository<RefBusinessObjectEntity> RefBusinessObjectRepository { get; }
-        IJournaledGenericRepository<RefBusinessObjectAttributeEntity> RefBusinessObjectAttributeRepository { get; }
-        IGenericRepositoryInt<EmployeeEntity> EmployeeIntRepository { get; }
-        IGenericRepositoryString<DepartmentEntity> DepartmentIntRepository { get; }
-        IJournaledGenericRepository<DelegationEntity> DelegationRepository { get; }
-        IJournaledGenericRepository<RefProcessStageEntity> RefProcessStageRepository { get; }
-        IJournaledGenericRepository<RefDeliveryTypeEntity> RefDeliveryTypeRepository { get; }
-        IJournaledGenericRepository<ProcessFileEntity> ProcessFileRepository { get; }
-        IJournaledGenericRepository<RefIncomeSourceEntity> RefIncomeSourceRepository { get; }
-        IJournaledGenericRepository<RefApplicantCategoryEntity> RefApplicantCategoryRepository { get; }
-        IJournaledGenericRepository<RefCorrespondenceTypeEntity> RefCorrespondenceTypeRepository { get; }
-        IJournaledGenericRepository<RefApprovalTypeEntity> RefApprovalTypeRepository { get; }
-        IJournaledGenericRepository<RefSecurityClassificationEntity> RefSecurityClassificationRepository { get; }
-        IJournaledGenericRepository<RefCatalogNumberEntity> RefCatalogNumberRepository { get; }
-        IJournaledGenericRepository<RefCatalogFolderEntity> RefCatalogFolderRepository { get; }
-        IJournaledGenericRepository<RefCorrespondenceNatureEntity> RefCorrespondenceNatureRepository { get; }
-        IJournaledGenericRepository<RefRegisterDocumentEntity> RefRegisterDocumentRepository { get; }
-        IJournaledGenericRepository<RefRegisterDocumentFolderEntity> RefRegisterDocumentFolderRepository { get; }
-        IJournaledGenericRepository<SignFileEntity> SignFileRepository { get; }
+        public Guid Id { get; set; }
+        public Guid ProcessDataId { get; set; }
+        public ProcessDataEntity ProcessData { get; set; }
+        public Guid? ParentTaskId { get; set; }
+        public ProcessTaskEntity? ParentTask { get; set; }
+        public List<ProcessTaskEntity> SubTasks { get; set; } = new ();
+        public Guid? BlockId { get; set; }
+        //public BlockEntity Block { get; set; }
+        public string? BlockCode { get; set; }
+        public string BlockName { get; set; }
+        public string AssigneeCode { get; set; }
+        public string AssigneeName { get; set; }
+        public string Status { get; set; }    
+        public string? Comment { get; set; }
+        public string? PayloadJson { get; set; }
+        public string ProcessCode { get; set; }
+        public string ProcessName { get; set; }
+        public string RegNumber { get; set; }
+        public string InitiatorCode { get; set; }
+        public string InitiatorName { get; set; }
+        public string Title { get; set; }
+        public int? Order { get; set; }
+
+
+        #region Apply
+
+        public void Apply(ProcessTaskCreatedEvent @event)
+        {
+            Id = Guid.NewGuid();
+            @event.EntityId = Id;
+            ParentTaskId = @event.ParentTaskId;
+            ProcessDataId = @event.ProcessDataId;
+            BlockId = @event.BlockId;
+            BlockCode = @event.BlockCode;
+            BlockName = @event.BlockName;
+            AssigneeCode = @event.AssigneeCode;
+            AssigneeName = @event.AssigneeName;
+            Status = @event.Status;
+            Comment = @event.Comment;
+            PayloadJson = @event.PayloadJson;
+            ProcessCode = @event.ProcessCode;
+            ProcessName = @event.ProcessName;
+            RegNumber = @event.RegNumber;
+            InitiatorCode = @event.InitiatorCode;
+            InitiatorName = @event.InitiatorName;
+            Title = @event.Title;
+            Order = @event.Order;
+        }
+
+        public void Apply(ProcessTaskStatusChangedEvent @event)
+        {
+            Status = @event.Status;
+        }
+
+        #endregion
     }
 }
+
