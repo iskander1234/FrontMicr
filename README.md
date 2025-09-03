@@ -1,4 +1,17 @@
-var tasks = await unitOfWork.ProcessTaskRepository
+public async Task<BaseResponseDto<List<GetProcessHistoryResponse>>> Handle(GetProcessHistoryQuery query, CancellationToken cancellationToken)
+{
+    var processTask = await unitOfWork.ProcessTaskRepository
+        .GetByFilterAsync(cancellationToken, t => t.Id == query.TaskId)
+        ?? throw new HandlerException("Задача не найдена", ErrorCodesEnum.Business);
+
+    var pdId = processTask.ProcessDataId;
+
+    var history = await unitOfWork.ProcessTaskHistoryRepository
+        .GetByFilterListAsync(cancellationToken, h => h.ProcessDataId == pdId);
+
+    var historyItems = mapper.Map<List<GetProcessHistoryResponse>>(history);
+
+    var tasks = await unitOfWork.ProcessTaskRepository
         .GetByFilterListAsync(cancellationToken, t => t.ProcessDataId == pdId);
 
     // Ручной маппинг активных задач в историю
@@ -21,3 +34,8 @@ var tasks = await unitOfWork.ProcessTaskRepository
         .Concat(taskItems)
         .OrderBy(x => x.Timestamp)
         .ToList();
+
+    var tree = processService.BuildHistoryTree(flat);
+
+    return new BaseResponseDto<List<GetProcessHistoryResponse>> { Data = tree };
+}
