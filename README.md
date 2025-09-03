@@ -1,33 +1,88 @@
-// ЗАМЕСТИТЕЛЬ
-var asDeputy = await _uow.DelegationRepository.GetByFilterListAsync(
-    ct, d => d.DeputyUserCode != null && d.DeputyUserCode.ToLower() == userLower);
+using AutoMapper;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
 
-if (asDeputy.Any())
+namespace BpmBaseApi.Application.QueryHandlers.Process
 {
-    var principals = asDeputy
-        .Where(d => d.PrincipalUserCode != null)
-        .Select(d => d.PrincipalUserCode!.ToLower())
-        .Distinct()
-        .ToList();
+    public class GetProcessHistoryQueryHandler(
+    IUnitOfWork unitOfWork,
+    IMapper mapper,
+    IProcessService processService
+) : IRequestHandler<GetProcessHistoryQuery, BaseResponseDto<List<GetProcessHistoryResponse>>>
+    {
+        public async Task<BaseResponseDto<List<GetProcessHistoryResponse>>> Handle(GetProcessHistoryQuery query, CancellationToken cancellationToken)
+        {
+            var processTask = await unitOfWork.ProcessTaskRepository
+                .GetByFilterAsync(cancellationToken, h => h.Id == query.TaskId);
 
-    var principalTasks = await _uow.ProcessTaskRepository.GetByFilterListAsync(
-        ct,
-        p => p.AssigneeCode != null
-             && principals.Contains(p.AssigneeCode.ToLower())
-             && p.Status == "Pending"
-             && p.BlockCode == _stageCode
-    );
+            var history = await unitOfWork.ProcessTaskHistoryRepository
+                .GetByFilterListAsync(cancellationToken, h => h.ProcessDataId == processTask.ProcessDataId);
 
-    all.AddRange(principalTasks);
+            var historyItems = mapper.Map<List<GetProcessHistoryResponse>>(history.OrderBy(h => h.Timestamp));
+
+            var tree = processService.BuildHistoryTree(historyItems);
+
+            return new BaseResponseDto<List<GetProcessHistoryResponse>> { Data = tree };
+        }
+    }
 }
 
-// dedup + сортировка (новые сверху)
-var ordered = all
-    .GroupBy(t => t.Id)            // убрать дубликаты
-    .Select(g => g.First())
-    .OrderByDescending(t => t.Created)
-    .ToList();
+using BpmBaseApi.Domain.Entities.AccessControl;
+using BpmBaseApi.Domain.Entities.Common;
+using BpmBaseApi.Domain.Entities.Employees;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Domain.Entities.Reference;
+using static Dapper.SqlMapper;
 
-var response = _mapper.Map<List<GetUserTasksResponse>>(ordered);
-_cache.Set(cacheKey, response, TimeSpan.FromHours(1));
-return new() { Data = response };
+namespace BpmBaseApi.Persistence.Interfaces
+{
+    public interface IUnitOfWork
+    {
+        void Commit();
+        // public ApplicationDbContext DbContext { get; }
+        Task CommitAsync(CancellationToken cancellationToken);
+        IJournaledGenericRepository<UserEntity> UserRepository { get; }
+        IJournaledGenericRepository<RoleEntity> RoleRepository { get; }
+        IJournaledGenericRepository<GroupEntity> GroupRepository { get; }
+        IJournaledGenericRepository<UserGroupEntity> UserGroupRepository { get; }
+        IJournaledGenericRepository<UserRoleEntity> UserRoleRepository { get; }
+        IJournaledGenericRepository<GroupRoleEntity> GroupRoleRepository { get; }
+        IJournaledGenericRepository<BlockEntity> BlockRepository { get; }
+        IJournaledGenericRepository<ProcessDataEntity> ProcessDataRepository { get; }
+        IJournaledGenericRepository<ProcessEntity> ProcessRepository { get; }
+        IJournaledGenericRepository<ProcessTaskEntity> ProcessTaskRepository { get; }
+        IJournaledGenericRepository<ProcessTaskHistoryEntity> ProcessTaskHistoryRepository { get; }
+        //IJournaledGenericRepository<RequestSequenceEntity> RequestSequenceRepository { get; }
+        IJournaledGenericRepository<RefProcessCategoryEntity> RefProcessCategoryRepository { get; }
+        IJournaledGenericRepository<RefProcessEntity> RefProcessRepository { get; }
+        IJournaledGenericRepository<RefInformationSystemEntity> RefInformationSystemRepository { get; }
+        IJournaledGenericRepository<WorkSessionEntity> WorkSessionRepository { get; }
+        IJournaledGenericRepository<WorkSessionLogEntity> WorkSessionLogRepository { get; }
+        IJournaledGenericRepository<RequestNumberCounterEntity> RequestNumberCounterRepository { get; }
+        IJournaledGenericRepository<MenuItemEntity> MenuItemRepository { get; }
+        IJournaledGenericRepository<RoleMenuEntity> RoleMenuRepository { get; }
+        IJournaledGenericRepository<RefBusinessObjectEntity> RefBusinessObjectRepository { get; }
+        IJournaledGenericRepository<RefBusinessObjectAttributeEntity> RefBusinessObjectAttributeRepository { get; }
+        IGenericRepositoryInt<EmployeeEntity> EmployeeIntRepository { get; }
+        IGenericRepositoryString<DepartmentEntity> DepartmentIntRepository { get; }
+        IJournaledGenericRepository<DelegationEntity> DelegationRepository { get; }
+        IJournaledGenericRepository<RefProcessStageEntity> RefProcessStageRepository { get; }
+        IJournaledGenericRepository<RefDeliveryTypeEntity> RefDeliveryTypeRepository { get; }
+        IJournaledGenericRepository<ProcessFileEntity> ProcessFileRepository { get; }
+        IJournaledGenericRepository<RefIncomeSourceEntity> RefIncomeSourceRepository { get; }
+        IJournaledGenericRepository<RefApplicantCategoryEntity> RefApplicantCategoryRepository { get; }
+        IJournaledGenericRepository<RefCorrespondenceTypeEntity> RefCorrespondenceTypeRepository { get; }
+        IJournaledGenericRepository<RefApprovalTypeEntity> RefApprovalTypeRepository { get; }
+        IJournaledGenericRepository<RefSecurityClassificationEntity> RefSecurityClassificationRepository { get; }
+        IJournaledGenericRepository<RefCatalogNumberEntity> RefCatalogNumberRepository { get; }
+        IJournaledGenericRepository<RefCatalogFolderEntity> RefCatalogFolderRepository { get; }
+        IJournaledGenericRepository<RefCorrespondenceNatureEntity> RefCorrespondenceNatureRepository { get; }
+        IJournaledGenericRepository<RefRegisterDocumentEntity> RefRegisterDocumentRepository { get; }
+        IJournaledGenericRepository<RefRegisterDocumentFolderEntity> RefRegisterDocumentFolderRepository { get; }
+        IJournaledGenericRepository<SignFileEntity> SignFileRepository { get; }
+    }
+}
