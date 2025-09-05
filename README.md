@@ -1,71 +1,237 @@
- public async Task FinalizeTaskAsync(ProcessTaskEntity task, CancellationToken cancellationToken)
+Вот как выглядит мой using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using static BpmBaseApi.Shared.Models.Process.CommonData;
+
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    // Никакого ICamundaService тут нет
+    public class SaveProcessCommandHandler(
+        IUnitOfWork unitOfWork,
+        IPayloadReaderService payloadReader,
+        IProcessTaskService helperService   // используем для GenerateRequestNumberAsync
+    ) : IRequestHandler<SaveProcessCommand, BaseResponseDto<StartProcessResponse>>
+    {
+        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
+            SaveProcessCommand command,
+            CancellationToken cancellationToken)
         {
-            await unitOfWork.ProcessTaskRepository.DeleteByIdAsync(task.Id, cancellationToken);
+            // 1) Процесс должен существовать
+            var process = await unitOfWork.ProcessRepository
+                .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
+                ?? throw new HandlerException(
+                    $"Процесс с кодом {command.ProcessCode} не найден",
+                    ErrorCodesEnum.Business);
 
-            // безопасно: null / пробелы игнорим
-            if (!string.IsNullOrWhiteSpace(task.AssigneeCode))
-                await RefreshUserTaskCacheAsync(task.AssigneeCode!, cancellationToken);
+            // 2) Генерим регистрационный номер (как в Start)
+            var requestNumber = await helperService
+                .GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
+
+            // 3) Сериализуем payload
+            var options = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            var payloadJson = JsonSerializer.Serialize(command.Payload, options);
+
+            var regData        = payloadReader.ReadSection<RegData>(command.Payload, "regData");
+            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
+
+            // 4) СОЗДАЁМ ProcessData в статусе Draft (вместо Started)
+            var processDataCreatedEvent = new ProcessDataCreatedEvent
+            {
+                ProcessId     = process.Id,
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                StatusCode    = "Draft",      // ВАЖНО
+                StatusName    = "Черновик",   // ВАЖНО
+                PayloadJson   = payloadJson,
+                Title         = processDataDto.DocumentTitle
+            };
+
+            await unitOfWork.ProcessDataRepository
+                .RaiseEvent(processDataCreatedEvent, cancellationToken);
+
+            // 7) Возвращаем тот же ответ, что и Start (Guid + RegNumber)
+            return new BaseResponseDto<StartProcessResponse>
+            {
+                Data = new StartProcessResponse
+                {
+                    ProcessGuid = processDataCreatedEvent.EntityId,
+                    RegNumber   = requestNumber
+                }
+            };
         }
+    }
+}
 
-        private static string NormalizeUser(string userCode)
-            => userCode.Trim().ToLowerInvariant();
 
-        private static string UserRootKey(string userNorm)
-            => $"tasks:{userNorm}";
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Models.Camunda;
+using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using static BpmBaseApi.Shared.Models.Process.CommonData;
 
-        private static string UserStagesIndexKey(string userNorm)
-            => $"tasks:{userNorm}:__stages";
-
-        private static string StageKey(string stageCode, string userNorm)
-            => $"tasks:{stageCode}:{userNorm}";
-
-        public async Task RefreshUserTaskCacheAsync(string userCode, CancellationToken cancellationToken)
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    public class StartProcessCommandHandler(
+        IUnitOfWork unitOfWork,
+        IPayloadReaderService payloadReader,
+        IProcessTaskService helperService,
+        ICamundaService camundaService)
+        : IRequestHandler<StartProcessCommand, BaseResponseDto<StartProcessResponse>>
+    {
+        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
+            StartProcessCommand command,
+            CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(userCode)) return;
+            // --- 1) Ваша старая логика без изменений ---
+            var process = await unitOfWork.ProcessRepository
+                .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
+                ?? throw new HandlerException(
+                    $"Процесс с кодом {command.ProcessCode} не найден",
+                    ErrorCodesEnum.Business);
 
-            var userNorm = NormalizeUser(userCode);
+            var requestNumber = await helperService
+                .GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
 
-            // 1) Снести прошлые ключи, чтобы не висели «пустые стадии»
-            cache.Remove(UserRootKey(userNorm));
-            if (cache.TryGetValue<string[]>(UserStagesIndexKey(userNorm), out var oldStageKeys) &&
-                oldStageKeys is not null)
+            var options = new JsonSerializerOptions
             {
-                foreach (var k in oldStageKeys) cache.Remove(k);
-                cache.Remove(UserStagesIndexKey(userNorm));
-            }
+                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            };
 
-            // 2) Прочитать актуальное Pending (защита от null в БД + case-insensitive)
-            var updatedTasks = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-                cancellationToken,
-                p => p.AssigneeCode != null
-                     && p.Status == "Pending"
-                     && p.AssigneeCode.ToLower() == userNorm
-            );
+            // сериализуем входной payload в строку
+            var payloadJson = JsonSerializer.Serialize(command.Payload, options);
 
-            // корневой ключ — отсортированно (если он где-то используется)
-            var orderedAll = updatedTasks
-                .OrderByDescending(t => t.Created)
-                .ThenBy(t => t.Id) // стабильность при одинаковых Created
-                .ToList();
-            
-            var mappedAll = mapper.Map<List<GetUserTasksResponse>>(orderedAll);
+            var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
+            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
 
-            // TTL лучше короткий, но чтобы «не ломать» — вынесем в константу (можешь поставить minutes:1)
-            var ttl = TimeSpan.FromMinutes(1);
-
-            // 3) Положить общий ключ
-            cache.Set(UserRootKey(userNorm), mappedAll, ttl);
-
-            // 4) Разложить по стадиям + сохранить индекс стадий, чтобы в следующий раз удалить корректно
-            var newStageKeys = new List<string>();
-            foreach (var grp in updatedTasks.GroupBy(t => t.BlockCode))
+            var processDataCreatedEvent = new ProcessDataCreatedEvent
             {
-                var stageKey = StageKey(grp.Key, userNorm);
-                var mappedStage = mapper.Map<List<GetUserTasksResponse>>(grp.ToList());
-                cache.Set(stageKey, mappedStage, ttl);
-                newStageKeys.Add(stageKey);
-            }
+                ProcessId = process.Id,
+                ProcessCode = process.ProcessCode,
+                ProcessName = process.ProcessName,
+                RegNumber = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                StatusCode = "Started",
+                StatusName = "В работе",
+                PayloadJson = payloadJson,
+                Title = processDataDto.DocumentTitle
+            };
 
-            cache.Set(UserStagesIndexKey(userNorm), newStageKeys.ToArray(), ttl);
+            await unitOfWork.ProcessDataRepository
+                .RaiseEvent(processDataCreatedEvent, cancellationToken);
+
+            var camundaVariables = new Dictionary<string, object>
+            {
+                { "processGuid", processDataCreatedEvent.EntityId.ToString() }
+            };
+
+            var response = await camundaService.CamundaStartProcess(
+                new CamundaStartProcessRequest { processCode = command.ProcessCode, variables = camundaVariables });
+
+            await unitOfWork
+                .ProcessDataRepository
+                .RaiseEvent
+                (
+                    new ProcessDataProcessInstanseIdChangedEvent()
+                    {
+                        EntityId = processDataCreatedEvent.EntityId,
+                        ProcessInstanceId = response
+                    },
+                    cancellationToken
+                );
+
+            // --- 2) NEW: Парсим из готовой строки payloadJson массив files вручную ---
+            var root = JsonNode.Parse(payloadJson)!.AsObject();
+            var filesArray = root["files"] as JsonArray;
+
+            if (filesArray != null)
+            {
+                foreach (var node in filesArray.OfType<JsonObject>())
+                {
+                    // извлекаем fileName и fileType
+                    var fileIdStr = node["fileId"]?.GetValue<string>();   // <-- NEW
+                    var fileName = node["fileName"]?.GetValue<string>();
+                    var fileType = node["fileType"]?.GetValue<string>();
+
+                    if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
+                    {
+                        throw new HandlerException(
+                            "Каждый объект в \"files\" должен иметь непустые fileName и fileType",
+                            ErrorCodesEnum.Business);
+                    }
+                    // Жёсткая проверка, что fileId — корректный GUID
+                    if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
+                        throw new HandlerException("Каждый объект в \"files\" должен иметь корректный GUID в поле fileId", ErrorCodesEnum.Business);
+
+                    var fileEvent = new ProcessFileCreatedEvent
+                    {
+                        EntityId = Guid.NewGuid(),                                // PK → Id записи
+                        ProcessDataId = processDataCreatedEvent.EntityId,              // FK на ProcessData
+                        FileId   = fileId,                               // <-- NEW
+                        FileName = fileName,
+                        FileType = fileType
+                    };
+                    await unitOfWork.ProcessFileRepository
+                        .RaiseEvent(fileEvent, cancellationToken);
+                }
+                // после всех RaiseEvent можно один раз закоммитить,
+                // но JournaledGenericRepository.RaiseEvent по умолчанию сразу коммитит
+            }
+            // --------------------------------------------------------------------
+
+            // --- 3) Старая логика истории задачи и возвращение ответа ---
+            var processTaskHistoryCreatedEvent = new ProcessTaskHistoryCreatedEvent
+            {
+                ProcessDataId = processDataCreatedEvent.EntityId,
+                TaskId = processDataCreatedEvent.EntityId,
+                Action = ProcessAction.Start.ToString(),
+                BlockName = "Регистрационная форма",
+                Timestamp = DateTime.Now,
+                PayloadJson = payloadJson,
+                Comment = "",
+                Description = "",
+                ProcessCode = command.ProcessCode,
+                ProcessName = process.ProcessName,
+                RegNumber = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                Title = processDataDto.DocumentTitle
+            };
+            await unitOfWork.ProcessTaskHistoryRepository
+                .RaiseEvent(processTaskHistoryCreatedEvent, cancellationToken);
+
+            return new BaseResponseDto<StartProcessResponse>
+            {
+                Data = new StartProcessResponse
+                {
+                    ProcessGuid = processDataCreatedEvent.EntityId,
+                    RegNumber = requestNumber
+                }
+            };
         }
-        
+    }
+}
