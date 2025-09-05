@@ -1,27 +1,69 @@
-/// <summary>Сохранить как черновик (как Start, но без Camunda; статус = Draft)</summary>
-    [HttpPost("save")]
-    [SwaggerResponse(StatusCodes.Status200OK, "Черновик сохранён", typeof(BaseResponseDto<StartProcessResponse>))]
-    [SwaggerResponse(StatusCodes.Status400BadRequest)]
-    [SwaggerResponse(StatusCodes.Status404NotFound)]
-    [SwaggerResponse(StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> SaveProcessAsync([FromBody] SaveProcessCommand command, CancellationToken cancellationToken)
-    {
-        var result = await mediator.Send(command, cancellationToken);
-        return Ok(result);
-    }
+using MediatR;
+using BpmBaseApi.Shared.Dtos;
 
-    /// <summary>Список черновиков по InitiatorCode (опционально: фильтр по ProcessCode, пагинация)</summary>
-    [HttpGet("drafts")]
-    [SwaggerResponse(StatusCodes.Status200OK, "Список черновиков", typeof(BaseResponseDto<List<GetDraftListItemResponse>>))]
-    public async Task<IActionResult> GetDraftsAsync(
-        [FromQuery] string initiatorCode,
-        [FromQuery] string? processCode,
-        [FromQuery] int? skip,
-        [FromQuery] int? take,
-        CancellationToken cancellationToken)
+namespace BpmBaseApi.Shared.Queries.Process
+{
+    public record GetDraftsByInitiatorQuery(string InitiatorCode)
+        : IRequest<BaseResponseDto<List<DraftItemResponse>>>;
+
+    public class DraftItemResponse
     {
-        var result = await mediator.Send(
-            new GetDraftsByInitiatorQuery(initiatorCode, processCode, skip, take),
-            cancellationToken);
-        return Ok(result);
+        public Guid   ProcessGuid { get; set; }
+        public string RegNumber   { get; set; } = "";
+        public string Title       { get; set; } = "";
+        public string ProcessCode { get; set; } = "";
+        public string ProcessName { get; set; } = "";
+        public string StatusCode  { get; set; } = "Draft";
+        public string StatusName  { get; set; } = "Черновик";
+        public DateTime Created   { get; set; }
+        public DateTime? Modified { get; set; }
     }
+}
+
+
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Process;
+using MediatR;
+
+namespace BpmBaseApi.Application.QueryHandlers.Process
+{
+    public class GetDraftsByInitiatorQueryHandler(
+        IUnitOfWork unitOfWork
+    ) : IRequestHandler<GetDraftsByInitiatorQuery, BaseResponseDto<List<DraftItemResponse>>>
+    {
+        public async Task<BaseResponseDto<List<DraftItemResponse>>> Handle(GetDraftsByInitiatorQuery query, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(query.InitiatorCode))
+                throw new HandlerException("InitiatorCode обязателен", ErrorCodesEnum.Business);
+
+            var initiator = query.InitiatorCode.Trim().ToLowerInvariant();
+
+            var drafts = await unitOfWork.ProcessDataRepository.GetByFilterListAsync(
+                ct,
+                p => p.InitiatorCode != null
+                     && p.InitiatorCode.ToLower() == initiator
+                     && p.StatusCode == "Draft"
+            );
+
+            var result = drafts
+                .OrderByDescending(p => p.Created)
+                .Select(p => new DraftItemResponse
+                {
+                    ProcessGuid = p.Id,
+                    RegNumber   = p.RegNumber,
+                    Title       = p.Title,
+                    ProcessCode = p.ProcessCode,
+                    ProcessName = p.ProcessName,
+                    StatusCode  = p.StatusCode,
+                    StatusName  = p.StatusName,
+                    Created     = p.Created,
+                    Modified    = p.Modified
+                })
+                .ToList();
+
+            return new BaseResponseDto<List<DraftItemResponse>> { Data = result };
+        }
+    }
+}
