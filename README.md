@@ -1,4 +1,13 @@
-using MediatR;
+ /// <summary>Список черновиков по InitiatorCode</summary>
+    [HttpGet("drafts")]
+    [SwaggerResponse(StatusCodes.Status200OK, "OK", typeof(BaseResponseDto<List<DraftItemResponse>>))]
+    public async Task<IActionResult> GetDrafts([FromQuery] string initiatorCode, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetDraftsByInitiatorQuery(initiatorCode), ct);
+        return Ok(result);
+    }
+    
+    using MediatR;
 using BpmBaseApi.Shared.Dtos;
 
 namespace BpmBaseApi.Shared.Queries.Process
