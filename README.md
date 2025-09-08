@@ -30,3 +30,26 @@ public partial class ProcessDataEntity
         // RegNumber — не трогаем
     }
 }
+
+
+
+
+// ... внутри StartProcessCommandHandler.Handle, в ветке когда нашли draft по regNumberFromPayload
+
+// было:
+// draft.StatusCode = "Started"; ... await unitOfWork.ProcessDataRepository.UpdateAsync(draft, cancellationToken);
+
+// стало:
+await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
+{
+    EntityId       = draft.Id,
+    StatusCode     = "Started",
+    StatusName     = "В работе",
+    PayloadJson    = payloadJson,
+    InitiatorCode  = regData?.UserCode,
+    InitiatorName  = regData?.UserName,
+    Title          = processDataDto?.DocumentTitle ?? draft.Title
+}, cancellationToken);
+
+// дальше без изменений — стартуем Camunda на draft.Id, добавляем files (как у тебя), пишем историю и возвращаем ответ
+
