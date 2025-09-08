@@ -1,4 +1,4 @@
-Вот как выглядит мой using System.Text.Encodings.Web;
+Вот как выглядит мой теперь мне надо чтобы перед созданием проверить есть ли такой RegNumber если есть мы просто Start создаем от того что уже есть ну получается его статус с етим RegNumber Draft и мы запускаем как старт и меняем его Started и запускаем как StartProcessCommandHandler using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BpmBaseApi.Domain.Entities.Event.Process;
