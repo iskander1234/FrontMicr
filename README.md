@@ -1,83 +1,3 @@
-Вот как выглядит мой теперь мне надо чтобы перед созданием проверить есть ли такой RegNumber если есть мы просто Start создаем от того что уже есть ну получается его статус с етим RegNumber Draft и мы запускаем как старт и меняем его Started и запускаем как StartProcessCommandHandler Получается надо обновить SELECT  "StatusCode", "StatusName", "PayloadJson",  "InitiatorCode", "InitiatorName", "Title" 
-FROM public."ProcessData";
- эти поля а логика получается в StartProcessCommandHandler проверит если есть обновить и запустить SaveProcessCommandHandler а иначе StartProcessCommandHandler чтобы работала как есть сейчас   using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using BpmBaseApi.Domain.Entities.Event.Process;
-using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Services.Interfaces;
-using BpmBaseApi.Shared.Commands.Process;
-using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Enum;
-using BpmBaseApi.Shared.Models.Process;
-using BpmBaseApi.Shared.Responses.Process;
-using MediatR;
-using static BpmBaseApi.Shared.Models.Process.CommonData;
-
-namespace BpmBaseApi.Application.CommandHandlers.Process
-{
-    // Никакого ICamundaService тут нет
-    public class SaveProcessCommandHandler(
-        IUnitOfWork unitOfWork,
-        IPayloadReaderService payloadReader,
-        IProcessTaskService helperService   // используем для GenerateRequestNumberAsync
-    ) : IRequestHandler<SaveProcessCommand, BaseResponseDto<StartProcessResponse>>
-    {
-        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
-            SaveProcessCommand command,
-            CancellationToken cancellationToken)
-        {
-            // 1) Процесс должен существовать
-            var process = await unitOfWork.ProcessRepository
-                .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
-                ?? throw new HandlerException(
-                    $"Процесс с кодом {command.ProcessCode} не найден",
-                    ErrorCodesEnum.Business);
-
-            // 2) Генерим регистрационный номер (как в Start)
-            var requestNumber = await helperService
-                .GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
-
-            // 3) Сериализуем payload
-            var options = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-            var payloadJson = JsonSerializer.Serialize(command.Payload, options);
-
-            var regData        = payloadReader.ReadSection<RegData>(command.Payload, "regData");
-            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
-
-            // 4) СОЗДАЁМ ProcessData в статусе Draft (вместо Started)
-            var processDataCreatedEvent = new ProcessDataCreatedEvent
-            {
-                ProcessId     = process.Id,
-                ProcessCode   = process.ProcessCode,
-                ProcessName   = process.ProcessName,
-                RegNumber     = requestNumber,
-                InitiatorCode = regData.UserCode,
-                InitiatorName = regData.UserName,
-                StatusCode    = "Draft",      // ВАЖНО
-                StatusName    = "Черновик",   // ВАЖНО
-                PayloadJson   = payloadJson,
-                Title         = processDataDto.DocumentTitle
-            };
-
-            await unitOfWork.ProcessDataRepository
-                .RaiseEvent(processDataCreatedEvent, cancellationToken);
-
-            // 7) Возвращаем тот же ответ, что и Start (Guid + RegNumber)
-            return new BaseResponseDto<StartProcessResponse>
-            {
-                Data = new StartProcessResponse
-                {
-                    ProcessGuid = processDataCreatedEvent.EntityId,
-                    RegNumber   = requestNumber
-                }
-            };
-        }
-    }
-}
-
-
 using BpmBaseApi.Domain.Entities.Event.Process;
 using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
@@ -108,7 +28,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             StartProcessCommand command,
             CancellationToken cancellationToken)
         {
-            // --- 1) Ваша старая логика без изменений ---
+           
             var process = await unitOfWork.ProcessRepository
                 .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
                 ?? throw new HandlerException(
@@ -235,5 +155,5 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 }
             };
         }
-    }
+}
 }
