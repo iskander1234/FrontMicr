@@ -15,7 +15,7 @@ using static BpmBaseApi.Shared.Models.Process.CommonData;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    // Никакого ICamundaService тут нет
+    // Camunda не трогаем
     public class SaveProcessCommandHandler(
         IUnitOfWork unitOfWork,
         IPayloadReaderService payloadReader,
@@ -32,30 +32,81 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                               $"Процесс с кодом {command.ProcessCode} не найден",
                               ErrorCodesEnum.Business);
 
-            var requestNumber = await helperService
-                .GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
-
-            var options = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            var options    = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
             var payloadJson = JsonSerializer.Serialize(command.Payload, options);
 
-            var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
+            var regData        = payloadReader.ReadSection<RegData>(command.Payload, "regData");
             var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
 
-            // NEW: вписываем номер в payload.regData.regnum
-            payloadJson = SetRegnumInPayload(payloadJson, requestNumber, options);
+            // 0) пробуем вытащить номер из входного payload
+            var regnumFromPayload = TryGetRegnumFromPayload(payloadJson);
+
+            if (!string.IsNullOrWhiteSpace(regnumFromPayload))
+            {
+                // A) если такой черновик существует — обновляем его
+                var existingDraft = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
+                    cancellationToken,
+                    p => p.ProcessCode == process.ProcessCode
+                         && p.RegNumber == regnumFromPayload
+                         && p.StatusCode == "Draft");
+
+                if (existingDraft is not null)
+                {
+                    // подстрахуемся и синхронизируем номер в payload
+                    payloadJson = SetRegnumInPayload(payloadJson, existingDraft.RegNumber, options);
+
+                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
+                    {
+                        EntityId      = existingDraft.Id,
+                        StatusCode    = "Draft",
+                        StatusName    = "Черновик",
+                        PayloadJson   = payloadJson,
+                        InitiatorCode = regData?.UserCode,
+                        InitiatorName = regData?.UserName,
+                        Title         = processDataDto?.DocumentTitle ?? existingDraft.Title
+                    }, cancellationToken);
+
+                    return new BaseResponseDto<StartProcessResponse>
+                    {
+                        Data = new StartProcessResponse
+                        {
+                            ProcessGuid = existingDraft.Id,
+                            RegNumber   = existingDraft.RegNumber
+                        }
+                    };
+                }
+
+                // если номер есть, но запись уже не Draft — сохранять нельзя
+                var notDraft = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
+                    cancellationToken,
+                    p => p.ProcessCode == process.ProcessCode
+                         && p.RegNumber == regnumFromPayload
+                         && p.StatusCode != "Draft");
+
+                if (notDraft is not null)
+                    throw new HandlerException("Заявка уже не в черновике, сохранить как Draft нельзя.", ErrorCodesEnum.Business);
+
+                // иначе — продолжим как «создать новый черновик ниже»
+            }
+
+            // B) номера нет (или по нему ничего не нашли) — создаём новый черновик, как раньше
+            var newRegNumber = await helperService.GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
+
+            // вписываем номер в payload.regData.regnum
+            payloadJson = SetRegnumInPayload(payloadJson, newRegNumber, options);
 
             var processDataCreatedEvent = new ProcessDataCreatedEvent
             {
-                ProcessId = process.Id,
-                ProcessCode = process.ProcessCode,
-                ProcessName = process.ProcessName,
-                RegNumber = requestNumber,
+                ProcessId     = process.Id,
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = newRegNumber,
                 InitiatorCode = regData.UserCode,
                 InitiatorName = regData.UserName,
-                StatusCode = "Draft",
-                StatusName = "Черновик",
-                PayloadJson = payloadJson,
-                Title = processDataDto.DocumentTitle
+                StatusCode    = "Draft",
+                StatusName    = "Черновик",
+                PayloadJson   = payloadJson,
+                Title         = processDataDto.DocumentTitle
             };
 
             await unitOfWork.ProcessDataRepository
@@ -66,11 +117,21 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 Data = new StartProcessResponse
                 {
                     ProcessGuid = processDataCreatedEvent.EntityId,
-                    RegNumber = requestNumber
+                    RegNumber   = newRegNumber
                 }
             };
 
-            // helper (NEW)
+            // --- helpers ---
+            static string? TryGetRegnumFromPayload(string payload)
+            {
+                try
+                {
+                    var root = JsonNode.Parse(payload)!.AsObject();
+                    return root["regData"]?["regnum"]?.GetValue<string>()?.Trim();
+                }
+                catch { return null; }
+            }
+
             static string SetRegnumInPayload(string payload, string regnum, JsonSerializerOptions opts)
             {
                 var root = JsonNode.Parse(payload)!.AsObject();
@@ -79,7 +140,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                     rd = new JsonObject();
                     root["regData"] = rd;
                 }
-
                 rd["regnum"] = regnum;
                 return JsonSerializer.Serialize(root, opts);
             }
