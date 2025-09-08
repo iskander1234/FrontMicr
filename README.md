@@ -1,4 +1,218 @@
-using BpmBaseApi.Domain.Entities.Event.Process;
+И старт и саве принимают такой json я бы хотел чтобы оба записывали регнамбер в regnum  "regData": {
+      "userCode": "b.shymkentbay",
+      "userName": "Шымкентбай Бақытжан Бахтиярұлы",
+      "departmentId": "19.100512",
+      "departmentName": "Управление разработки пенсионного учета",
+      "startdate": "2025-08-05T10:09:46.584Z",
+      "regnum": ""
+    }, именно сюда  "regnum": "" и потом отсюда будет проверять думаю правильно {
+  "processCode": "Memo",
+  "initiatorCode": "m.ilespayev",
+  "initiatorName": "Илеспаев",
+  "payload": {
+    "regData": {
+      "userCode": "b.shymkentbay",
+      "userName": "Шымкентбай Бақытжан Бахтиярұлы",
+      "departmentId": "19.100512",
+      "departmentName": "Управление разработки пенсионного учета",
+      "startdate": "2025-08-05T10:09:46.584Z",
+      "regnum": ""
+    },
+    "sysInfo": {
+      "userCode": "b.shymkentbay",
+      "userName": "Шымкентбай Бақытжан Бахтиярұлы",
+      "comment": "comment",
+      "action": "submit",
+      "condition": "string"
+    },
+    "initiator": {
+      "id": 7820,
+      "name": "Шымкентбай Бақытжан Бахтиярұлы",
+      "position": "Главный специалист",
+      "login": "b.shymkentbay",
+      "statusCode": 6,
+      "statusDescription": "Работа",
+      "depId": "19.100512",
+      "depName": "Управление разработки пенсионного учета",
+      "parentDepId": "19.100500",
+      "parentDepName": "Департамент цифровизации",
+      "isFilial": false,
+      "mail": "b.shymkentbay@enpf.kz",
+      "localPhone": "0",
+      "mobilePhone": "+7(708) 927-44-98",
+      "isManager": false,
+      "managerTabNumber": "4340",
+      "disabled": false,
+      "tabNumber": "00ЗП-00292"
+    },
+    "approvers": [
+      {
+        "loginAD": "m.ilespayev",
+        "id": 611,
+        "name": "Илеспаев Меииржан Анварович",
+        "shortName": null,
+        "position": "Заместитель директора департамента",
+        "login": "m.ilespayev",
+        "statusCode": 6,
+        "statusDescription": "Работа",
+        "depId": "19.100500",
+        "depName": "Департамент цифровизации",
+        "parentDepId": "19.100500",
+        "parentDepName": "Департамент цифровизации",
+        "isFilial": false,
+        "mail": "m.ilespayev@enpf.kz",
+        "localPhone": "0",
+        "mobilePhone": "+7(702) 171-71-14",
+        "isManager": true,
+        "managerTabNumber": "4303",
+        "disabled": false,
+        "tabNumber": "00ЗП-00240",
+        "order": 1
+      },
+      {
+        "loginAD": "a.ysmail",
+        "id": 1545,
+        "name": "Ысмаил Арғынбек Байдабекұлы",
+        "shortName": null,
+        "position": "Главный специалист",
+        "login": "a.ysmail",
+        "statusCode": 6,
+        "statusDescription": "Работа",
+        "depId": "19.100508",
+        "depName": "Управление разработки фронтальных систем",
+        "parentDepId": "19.100500",
+        "parentDepName": "Департамент цифровизации",
+        "isFilial": false,
+        "mail": "a.ysmail@enpf.kz",
+        "localPhone": "0",
+        "mobilePhone": "+7(702) 778-53-30",
+        "isManager": false,
+        "managerTabNumber": "4340",
+        "disabled": false,
+        "tabNumber": "00ЗП-00289",
+        "order": 2
+      },
+      {
+        "loginAD": "i.dogali",
+        "id": 611,
+        "name": "Илеспаев Меииржан Анварович",
+        "shortName": null,
+        "position": "Заместитель директора департамента",
+        "login": "m.ilespayev",
+        "statusCode": 6,
+        "statusDescription": "Работа",
+        "depId": "19.100500",
+        "depName": "Департамент цифровизации",
+        "parentDepId": "19.100500",
+        "parentDepName": "Департамент цифровизации",
+        "isFilial": false,
+        "mail": "m.ilespayev@enpf.kz",
+        "localPhone": "0",
+        "mobilePhone": "+7(702) 171-71-14",
+        "isManager": true,
+        "managerTabNumber": "4303",
+        "disabled": false,
+        "tabNumber": "00ЗП-00240",
+        "order": 3
+      }
+    ],
+    "recipients": [
+      {
+        "loginAD": "l.iskender",
+        "id": 633,
+        "name": "Искендер Лесхан Муратұлы",
+        "shortName": null,
+        "position": "Главный специалист",
+        "login": "l.iskender",
+        "statusCode": 6,
+        "statusDescription": "Работа",
+        "depId": "19.100509",
+        "depName": "Управление разработки Web приложений и сервисов",
+        "parentDepId": "19.100500",
+        "parentDepName": "Департамент цифровизации",
+        "isFilial": false,
+        "mail": "l.iskender@enpf.kz",
+        "localPhone": "0",
+        "mobilePhone": "+7(707) 517-04-67",
+        "isManager": false,
+        "managerTabNumber": "4340",
+        "disabled": false,
+        "tabNumber": "00ЗП-00083"
+      },
+      {
+        "loginAD": "i.dosgali",
+        "id": 414,
+        "name": "Досгали Искандер Досгалиұлы",
+        "shortName": null,
+        "position": "Главный специалист",
+        "login": "i.dosgali",
+        "statusCode": 6,
+        "statusDescription": "Работа",
+        "depId": "19.100509",
+        "depName": "Управление разработки Web приложений и сервисов",
+        "parentDepId": "19.100500",
+        "parentDepName": "Департамент цифровизации",
+        "isFilial": false,
+        "mail": "i.dosgali@enpf.kz",
+        "localPhone": "0",
+        "mobilePhone": "+7(747) 790-29-49",
+        "isManager": false,
+        "managerTabNumber": "4340",
+        "disabled": false,
+        "tabNumber": "00ЗП-00275"
+      }
+    ],
+    "signer": {
+      "loginAD": "a.aristombekov",
+      "id": 168,
+      "name": "Аристомбеков Арстан Рамазанулы",
+      "shortName": null,
+      "position": "Директор департамента",
+      "login": "a.aristombekov",
+      "statusCode": 5,
+      "statusDescription": "Отпуск основной",
+      "depId": "19.100500",
+      "depName": "Департамент цифровизации",
+      "parentDepId": "19.100500",
+      "parentDepName": "Департамент цифровизации",
+      "isFilial": false,
+      "mail": "a.aristombekov@enpf.kz",
+      "localPhone": "0",
+      "mobilePhone": "+7(705) 950-90-65",
+      "isManager": true,
+      "managerTabNumber": "4303",
+      "disabled": false,
+      "tabNumber": "4340"
+    },
+    "processData": {
+      "documentTitle": "тема документа",
+      "approvalTypeCode": "Parallel",
+      "approvalTypeName": "Параллельно",
+      "nomenclatureId": "1",
+      "nomenclatureName": "Акт",
+      "documentLang": "ru",
+      "confLevelCode": "string",
+      "confLevelName": "string",
+      "pageCount": "5",
+      "allGroups": "string",
+      "myGroups": "string",
+      "DueDate": "date",
+      "documentBody": "<p><strong>ТЕКС&nbsp;СЗ</strong></p>"
+    },
+    "files": [
+      {
+        "fileId": "0ec544b8-6d84-4fd5-93fc-ff22f13053b3",
+        "fileName": "Рисковое событие.docx",
+        "fileType": "scan"
+      },
+      {
+        "fileId": "8d1b2532-b727-484d-877f-1e7658851a2e",
+        "fileName": "ffh.pdf",
+        "fileType": "scan"
+      }
+    ]
+  }
+} using BpmBaseApi.Domain.Entities.Event.Process;
 using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Services.Interfaces;
@@ -244,12 +458,12 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
     }
 }
 
-
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using BpmBaseApi.Domain.Entities.Event.Process;
 using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Services.Implementations;
 using BpmBaseApi.Services.Interfaces;
 using BpmBaseApi.Shared.Commands.Process;
 using BpmBaseApi.Shared.Dtos;
@@ -258,231 +472,67 @@ using BpmBaseApi.Shared.Models.Process;
 using BpmBaseApi.Shared.Responses.Process;
 using MediatR;
 using static BpmBaseApi.Shared.Models.Process.CommonData;
-using static Microsoft.EntityFrameworkCore.DbLoggerCategory.Database;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class SetProcessStageCommandHandler(
+    // Никакого ICamundaService тут нет
+    public class SaveProcessCommandHandler(
         IUnitOfWork unitOfWork,
-        IProcessTaskService processTaskService
-        ) : IRequestHandler<SetProcessStageCommand, BaseResponseDto<SetProcessStageResponse>>
+        IPayloadReaderService payloadReader,
+        IProcessTaskService helperService   // используем для GenerateRequestNumberAsync
+    ) : IRequestHandler<SaveProcessCommand, BaseResponseDto<StartProcessResponse>>
     {
-        public async Task<BaseResponseDto<SetProcessStageResponse>> Handle(SetProcessStageCommand request, CancellationToken cancellationToken)
+        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
+            SaveProcessCommand command,
+            CancellationToken cancellationToken)
         {
-            try
+            // 1) Процесс должен существовать
+            var process = await unitOfWork.ProcessRepository
+                .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
+                ?? throw new HandlerException(
+                    $"Процесс с кодом {command.ProcessCode} не найден",
+                    ErrorCodesEnum.Business);
+
+            // 2) Генерим регистрационный номер (как в Start)
+            var requestNumber = await helperService
+                .GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
+
+            // 3) Сериализуем payload
+            var options = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            var payloadJson = JsonSerializer.Serialize(command.Payload, options);
+
+            var regData        = payloadReader.ReadSection<RegData>(command.Payload, "regData");
+            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
+
+            // 4) СОЗДАЁМ ProcessData в статусе Draft (вместо Started)
+            var processDataCreatedEvent = new ProcessDataCreatedEvent
             {
-                var processData = await unitOfWork
-                .ProcessDataRepository
-                .GetByFilterAsync(
-                    cancellationToken,
-                    a => a.Id == request.ProcessGuid
-                );
-
-            if (processData is null)
-                return new BaseResponseDto<SetProcessStageResponse> { Data = new SetProcessStageResponse() { Status = "Ok" } };
-
-            var processStageInfo = await unitOfWork.RefProcessStageRepository
-                .GetByFilterAsync(
-                    cancellationToken,
-                    a => a.Code == request.Stage.ToString()
-                );
-
-            await unitOfWork
-                .ProcessDataRepository
-                .RaiseEvent(new ProcessDataBlockChangedEvent
-                {
-                    EntityId = processData.Id,
-                    BlockCode = processStageInfo.Code,
-                    BlockName = processStageInfo.Name,
-                }, cancellationToken);
-            
-            if (request.Stage is ProcessStage.Completed or ProcessStage.Canceled)
-            {
-                return new BaseResponseDto<SetProcessStageResponse>
-                {
-                    Data = new SetProcessStageResponse { Status = "Ok" }
-                };
-            }
-
-
-            var payloadDict = JsonSerializer.Deserialize<Dictionary<string, object>>(processData.PayloadJson);
-
-            string key = request.Stage switch
-            {
-                ProcessStage.Approval => "approvers",
-                ProcessStage.Signing => "signer",
-                ProcessStage.Rework => "initiator",
-                ProcessStage.Execution => "recipients",
-                ProcessStage.ExecutionCheck => "initiator",
-                _ => throw new InvalidOperationException($"Unsupported process stage: {request.Stage}")
+                ProcessId     = process.Id,
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = requestNumber,
+                InitiatorCode = regData.UserCode,
+                InitiatorName = regData.UserName,
+                StatusCode    = "Draft",      // ВАЖНО
+                StatusName    = "Черновик",   // ВАЖНО
+                PayloadJson   = payloadJson,
+                Title         = processDataDto.DocumentTitle
             };
 
-            var recipients = ExtractFromPayloadFlexible<UserDataDto>(payloadDict, key) ?? new();
+            await unitOfWork.ProcessDataRepository
+                .RaiseEvent(processDataCreatedEvent, cancellationToken);
 
-            // 1) читаем тип согласования из processData.approvalTypeCode
-            bool isSequential = ReadIsSequentialFromProcessData(payloadDict);
-
-            // 2) родительская system‑задача — как раньше
-            var systemTask = await processTaskService.CreateSystemTaskAsync(
-                processStageInfo.Code, processStageInfo.Name, processData, cancellationToken);
-
-            // 3) Если Approval и режим Sequentially — создаём детей Pending/Waiting и пишем Order
-            if (request.Stage == ProcessStage.Approval && isSequential)
+            // 7) Возвращаем тот же ответ, что и Start (Guid + RegNumber)
+            return new BaseResponseDto<StartProcessResponse>
             {
-                var ordered = recipients
-                    .Select((r, idx) => new { Item = r, Index = idx })
-                    .OrderBy(x => x.Item.Order ?? int.MaxValue)
-                    .ThenBy(x => x.Item.UserCode ?? "")
-                    .ThenBy(x => x.Index)
-                    .Select(x => x.Item)
-                    .ToList();
-
-                int seq = 1;
-                bool isFirst = true;
-                foreach (var r in ordered)
+                Data = new StartProcessResponse
                 {
-                    var assignee = r.UserCode; // loginAD -> UserCode
-                    if (string.IsNullOrWhiteSpace(assignee)) continue;
-
-                    await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskCreatedEvent
-                    {
-                        EntityId       = Guid.NewGuid(),
-                        ProcessDataId  = processData.Id,
-                        ParentTaskId   = systemTask.EntityId,
-
-                        ProcessCode    = processData.ProcessCode,
-                        ProcessName    = processData.ProcessName ?? "",
-                        RegNumber      = processData.RegNumber ?? "",
-                        InitiatorCode  = processData.InitiatorCode ?? "",
-                        InitiatorName  = processData.InitiatorName ?? "",
-                        Title          = processData.Title ?? "",
-
-                        AssigneeCode   = assignee.ToLowerInvariant(),
-                        AssigneeName   = r.UserName ?? "",
-                        BlockCode      = processStageInfo.Code,
-                        BlockName      = processStageInfo.Name,
-                        Status         = isFirst ? "Pending" : "Waiting",
-                        Order          = r.Order ?? seq
-                    }, cancellationToken);
-
-                    isFirst = false;
-                    seq++;
+                    ProcessGuid = processDataCreatedEvent.EntityId,
+                    RegNumber   = requestNumber
                 }
-            }
-            else
-            {
-                // 4) Иначе — параллельно, как было. Метод внутри уже пишет Order
-                await processTaskService.CreateTasksNewAsync(
-                    processStageInfo.Code, processStageInfo.Name,
-                    recipients, processData, systemTask.EntityId, cancellationToken);
-            }
-
-            return new BaseResponseDto<SetProcessStageResponse> { Data = new SetProcessStageResponse() { Status = "Ok" } };
-            }
-            // 1) наши бизнес-ошибки — просто пробрасываем, чтобы не потерять стек/сообщение
-            catch (HandlerException)
-            {
-                throw;
-            }
-            // 2) отмену нельзя заворачивать
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            // 3) всё остальное — заворачиваем в HandlerException с inner (см. конструктор ниже)
-            catch (Exception ex)
-            {
-                // логирование ex тут, если нужно
-                throw new HandlerException($"Внутренняя ошибка при установке этапа процесса: {ex}", ErrorCodesEnum.Business);
-            }
-
-        }
-
-        public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
-        {
-            if (payload == null || !payload.TryGetValue(key, out var value))
-                return default;
-
-            var json = JsonSerializer.Serialize(value);
-            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-        }
-
-        private List<T> ExtractFromPayloadFlexible<T>(Dictionary<string, object> payload, string key)
-        {
-            if (!payload.TryGetValue(key, out var rawValue) || rawValue == null)
-                return new();
-
-            var json = JsonSerializer.Serialize(rawValue);
-
-            try
-            {
-                // Пытаемся десериализовать как список
-                return JsonSerializer.Deserialize<List<T>>(json) ?? new();
-            }
-            catch (JsonException)
-            {
-                try
-                {
-                    // Если не список — пробуем как одиночный объект и оборачиваем его в список
-                    var singleItem = JsonSerializer.Deserialize<T>(json);
-                    return singleItem != null ? new List<T> { singleItem } : new();
-                }
-                catch (JsonException ex)
-                {
-                    throw new JsonException($"Не удалось десериализовать поле '{key}' как {typeof(T)} или List<{typeof(T)}>", ex);
-                }
-            }
-        }
-        
-        private static bool TryReadSequenceFlag(Dictionary<string, object>? payload)
-        {
-            if (payload == null) return false;
-            try
-            {
-                if (!payload.TryGetValue("sysInfo", out var sysInfoRaw) || sysInfoRaw == null)
-                    return false;
-
-                var json = JsonSerializer.Serialize(sysInfoRaw);
-                var sysInfo = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-                if (sysInfo != null && sysInfo.TryGetValue("sequence", out var seqRaw))
-                {
-                    var seqJson = JsonSerializer.Serialize(seqRaw);
-                    var seq = JsonSerializer.Deserialize<bool?>(seqJson);
-                    return seq == true;
-                }
-            }
-            catch { /* игнор, считаем false */ }
-
-            return false;
-        }
-
-        /// <summary>
-        /// true, если processData.approvalTypeCode == "Sequentially" (без учёта регистра)
-        /// </summary>
-        private static bool ReadIsSequentialFromProcessData(Dictionary<string, object>? payload)
-        {
-            if (payload == null) return false;
-            try
-            {
-                if (!payload.TryGetValue("processData", out var pdRaw) || pdRaw is null) return false;
-
-                var json = JsonSerializer.Serialize(pdRaw);
-                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-                if (pd != null && pd.TryGetValue("approvalTypeCode", out var typeRaw) && typeRaw is not null)
-                {
-                    var tJson = JsonSerializer.Serialize(typeRaw);
-                    var type = JsonSerializer.Deserialize<string>(tJson);
-                    return string.Equals(type, "Sequentially", StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            catch { /* считаем Parallel */ }
-
-            return false;
+            };
         }
     }
 }
+
+
