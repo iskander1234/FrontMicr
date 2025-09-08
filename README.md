@@ -1,4 +1,6 @@
-Вот как выглядит мой теперь мне надо чтобы перед созданием проверить есть ли такой RegNumber если есть мы просто Start создаем от того что уже есть ну получается его статус с етим RegNumber Draft и мы запускаем как старт и меняем его Started и запускаем как StartProcessCommandHandler using System.Text.Encodings.Web;
+Вот как выглядит мой теперь мне надо чтобы перед созданием проверить есть ли такой RegNumber если есть мы просто Start создаем от того что уже есть ну получается его статус с етим RegNumber Draft и мы запускаем как старт и меняем его Started и запускаем как StartProcessCommandHandler Получается надо обновить SELECT  "StatusCode", "StatusName", "PayloadJson",  "InitiatorCode", "InitiatorName", "Title" 
+FROM public."ProcessData";
+ эти поля а логика получается в StartProcessCommandHandler проверит если есть обновить и запустить SaveProcessCommandHandler а иначе StartProcessCommandHandler чтобы работала как есть сейчас   using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BpmBaseApi.Domain.Entities.Event.Process;
