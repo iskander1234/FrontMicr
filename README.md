@@ -11,44 +11,46 @@ private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
 
     var stageCode = stage.ToString();
 
-    // 1) Дочерние задачи "раунда" (дети system-родителя)
-    var roundLevel1 = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
-        ct,
-        t => t.ParentTaskId == parentTaskId
-    );
-    var l1Ids = roundLevel1.Select(t => t.Id).ToList();
+    // 1) system-родитель текущего раунда
+    var root = await unitOfWork.ProcessTaskRepository.GetByIdAsync(ct, parentTaskId.Value)
+               ?? throw new HandlerException("Системная задача раунда не найдена", ErrorCodesEnum.Business);
 
-    // 2) Делегированные задачи (1 уровень вниз от Level1)
-    var l2Ids = new List<Guid>();
-    if (l1Ids.Count > 0)
+    // 2) Собираем ВСЕ задачи раунда: дети любого уровня от system-родителя (BFS)
+    var scope = new HashSet<Guid> { parentTaskId.Value };
+    var frontier = new Queue<Guid>();
+    frontier.Enqueue(parentTaskId.Value);
+
+    while (frontier.Count > 0)
     {
-        var roundLevel2 = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
+        var pid = frontier.Dequeue();
+
+        // берём прямых детей pid
+        var children = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
             ct,
-            t => t.ParentTaskId != null && l1Ids.Contains(t.ParentTaskId.Value)
+            t => t.ParentTaskId != null && t.ParentTaskId == pid
         );
-        l2Ids = roundLevel2.Select(t => t.Id).ToList();
+
+        foreach (var ch in children)
+        {
+            if (scope.Add(ch.Id))
+                frontier.Enqueue(ch.Id);
+        }
     }
 
-    // 3) Собираем scope текущего раунда
-    var scopeIds = l1Ids
-        .Concat(l2Ids)
-        .Append(parentTaskId.Value)
-        .Distinct()
-        .ToArray(); // массив лучше транслируется в SQL IN
-
-    // 4) Есть ли remake/reject в этом раунде?
+    // 3) Проверяем, есть ли remake/reject в рамках этого «поддерева» (TaskId / ParentTaskId в scope)
+    //    + запасной вариант: история без ParentTaskId, но с BlockCode == stageCode и Timestamp >= созданию root
     var negativeCount = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
         ct,
         h => h.ProcessDataId == processDataId
              && h.BlockCode == stageCode
              && (
-                    // История, привязанная к родителю/детям раунда
-                    (h.ParentTaskId.HasValue && scopeIds.Contains(h.ParentTaskId.Value))
-                    // И/или к конкретным задачам (в т.ч. делегированным). TaskId — НЕ nullable Guid.
-                 || (h.TaskId != Guid.Empty && scopeIds.Contains(h.TaskId))
+                    (h.ParentTaskId.HasValue && scope.Contains(h.ParentTaskId.Value))
+                 || (h.TaskId != Guid.Empty && scope.Contains(h.TaskId))
+                 || (!h.ParentTaskId.HasValue && h.TaskId == Guid.Empty && h.Timestamp >= root.Created)
                 )
-             && (h.Condition == nameof(ProcessCondition.remake)
-                 || h.Condition == nameof(ProcessCondition.reject))
+             && (h.Condition != null && (
+                    h.Condition.Equals(nameof(ProcessCondition.remake), StringComparison.OrdinalIgnoreCase)
+                 || h.Condition.Equals(nameof(ProcessCondition.reject), StringComparison.OrdinalIgnoreCase)))
     );
 
     return negativeCount == 0;
