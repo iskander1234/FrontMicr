@@ -2,7 +2,7 @@ private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
     ProcessStage stage,
     bool currentIsPositive,
     Guid processDataId,
-    Guid? parentTaskId,                 // сюда ты и так передаёшь system-родителя
+    Guid? parentTaskId,
     IUnitOfWork unitOfWork,
     CancellationToken ct)
 {
@@ -11,15 +11,15 @@ private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
 
     var stageCode = stage.ToString();
 
-    // 1) Все "дети раунда": задачи, у которых ParentTaskId == system-родителю
+    // 1) Дочерние задачи "раунда" (дети system-родителя)
     var roundLevel1 = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
         ct,
         t => t.ParentTaskId == parentTaskId
     );
     var l1Ids = roundLevel1.Select(t => t.Id).ToList();
 
-    // 2) Делегированные задачи (1 уровень вниз): ParentTaskId ∈ Level1
-    List<Guid> l2Ids = new();
+    // 2) Делегированные задачи (1 уровень вниз от Level1)
+    var l2Ids = new List<Guid>();
     if (l1Ids.Count > 0)
     {
         var roundLevel2 = await unitOfWork.ProcessTaskRepository.GetByFilterListAsync(
@@ -29,23 +29,27 @@ private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
         l2Ids = roundLevel2.Select(t => t.Id).ToList();
     }
 
-    // 3) Собираем множество id, относящихся к текущему "раунду" (system-родитель + дети + делегаты)
-    var scopeIds = new HashSet<Guid>(l1Ids.Concat(l2Ids)) { parentTaskId.Value };
+    // 3) Собираем scope текущего раунда
+    var scopeIds = l1Ids
+        .Concat(l2Ids)
+        .Append(parentTaskId.Value)
+        .Distinct()
+        .ToArray(); // массив лучше транслируется в SQL IN
 
-    // 4) Был ли где-то в этом раунде remake/reject?
+    // 4) Есть ли remake/reject в этом раунде?
     var negativeCount = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
         ct,
         h => h.ProcessDataId == processDataId
              && h.BlockCode == stageCode
              && (
                     // История, привязанная к родителю/детям раунда
-                    (h.ParentTaskId != null && scopeIds.Contains(h.ParentTaskId.Value))
-                 || (h.TaskId != null && scopeIds.Contains(h.TaskId.Value))
+                    (h.ParentTaskId.HasValue && scopeIds.Contains(h.ParentTaskId.Value))
+                    // И/или к конкретным задачам (в т.ч. делегированным). TaskId — НЕ nullable Guid.
+                 || (h.TaskId != Guid.Empty && scopeIds.Contains(h.TaskId))
                 )
              && (h.Condition == nameof(ProcessCondition.remake)
                  || h.Condition == nameof(ProcessCondition.reject))
     );
 
-    // если находили remake/reject в этом раунде — итог НЕ положительный
     return negativeCount == 0;
 }
