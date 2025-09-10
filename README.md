@@ -1,3 +1,12 @@
-Установи .NET Core SDK 3.1.x (последний — 3.1.426).
+{
+  "sdk": {
+    "version": "3.1.426",
+    "rollForward": "latestFeature"
+  }
+}
 
-Windows: ставь SDK 3.1.x (не Runtime!).
+
+и потом терминалда 
+dotnet --info
+dotnet restore
+dotnet build -c Release
