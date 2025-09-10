@@ -1,2 +1,1 @@
-Терминалды ашта команда жазшы 
-dotnet --list-sdks 
+2.1.505 [C:\Program Files\dotnet\sdk]
