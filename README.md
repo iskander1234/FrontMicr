@@ -86,3 +86,64 @@ public class GetExecutionProcessDataHistoryQueryHandler(
         };
     }
 }
+
+
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+
+namespace BpmBaseApi.Shared.Queries.Process
+{
+    public class GetExecutionProcessHistoryQuery : IRequest<BaseResponseDto<List<GetExecutionProcessHistoryResponse>>>
+    {
+        /// <summary>
+        /// Уникальный идентификатор 
+        /// </summary>
+        public Guid TaskId { get; set; }
+    }
+}
+
+
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+
+namespace BpmBaseApi.Shared.Queries.Process
+{
+    public class GetExecutionProcessDataHistoryQuery : IRequest<BaseResponseDto<List<GetExecutionProcessHistoryResponse>>>
+    {
+        /// <summary>
+        /// Уникальный идентификатор 
+        /// </summary>
+        public Guid ProcessDataId { get; set; }
+    }
+}
+
+namespace BpmBaseApi.Shared.Responses.Process;
+
+public abstract class GetExecutionProcessHistoryResponse : GetProcessHistoryResponse
+{
+    
+}
+
+
+namespace BpmBaseApi.Shared.Responses.Process
+{
+    public class GetProcessHistoryResponse
+    {
+        public Guid TaskId { get; set; }
+        public Guid? ParentTaskId { get; set; }
+        public string BlockCode { get; set; }
+        public string BlockName { get; set; }
+        public string AssigneeCode { get; set; }
+        public string AssigneeName { get; set; }
+        public string Action { get; set; }
+        public string? Comment { get; set; }
+        //public string? Condition { get; set; }
+        public DateTime Timestamp { get; set; }
+        public string? ActionName { get; set; }
+        public List<GetProcessHistoryResponse> Children { get; set; } = new();
+    }
+}
+
+
