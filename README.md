@@ -1,23 +1,31 @@
-// ★ Rework: если отправляем дальше (Submit) и в JSON есть regData.regnum — просто делаем update всего ProcessData
+// ★ Rework: если отправляем дальше (Submit) и в JSON уже есть regData.regnum — делаем полный update ProcessData
 if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var currentStage)
     && currentStage == ProcessStage.Rework
     && command.Action == ProcessAction.Submit)
 {
-    // Берём JSON из команды, если прислали новый; иначе — текущий из ProcessData
-    var srcJson = !string.IsNullOrWhiteSpace(command.PayloadJson)
-        ? command.PayloadJson
+    // command.PayloadJson у тебя Dictionary<string, object>? — если пришёл новый payload, сериализуем его.
+    string candidateJson = command.PayloadJson is not null
+        ? JsonSerializer.Serialize(command.PayloadJson)
         : processData.PayloadJson;
 
-    if (!string.IsNullOrWhiteSpace(srcJson) && JsonHasRegnum(srcJson))
+    if (!string.IsNullOrWhiteSpace(candidateJson) && JsonHasRegnum(candidateJson))
     {
-        // Фиксируем все изменения целиком — перезаписываем PayloadJson только если пришёл новый
-        if (!string.IsNullOrWhiteSpace(command.PayloadJson))
-            processData.PayloadJson = command.PayloadJson;
-
-        await unitOfWork.ProcessDataRepository.UpdateAsync(cancellationToken, processData);
-        // Ничего больше не меняем; ниже идёт основная логика как была
+        // Сохраняем ВСЁ (как "простой update") через событийную модель
+        await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
+        {
+            EntityId      = processData.Id,
+            StatusCode    = processData.StatusCode,
+            StatusName    = processData.StatusName,
+            PayloadJson   = candidateJson,               // если пришёл новый — сохранится новый
+            InitiatorCode = processData.InitiatorCode,
+            InitiatorName = processData.InitiatorName,
+            Title         = processData.Title
+        }, cancellationToken);
+        // дальше вся твоя логика идёт как была
     }
 }
+
+
 
 
 
@@ -27,37 +35,25 @@ private static bool JsonHasRegnum(string json)
     {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
-
         if (root.ValueKind != JsonValueKind.Object) return false;
 
-        if (TryGetPropertyCaseInsensitive(root, "regData", out var regDataEl) &&
-            TryGetPropertyCaseInsensitive(regDataEl, "regnum", out var regnumEl) &&
-            regnumEl.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(regnumEl.GetString()))
+        // case-insensitive поиск regData.regnum
+        foreach (var p in root.EnumerateObject())
         {
-            return true;
+            if (!p.Name.Equals("regData", StringComparison.OrdinalIgnoreCase)) continue;
+            var regData = p.Value;
+            if (regData.ValueKind != JsonValueKind.Object) return false;
+
+            foreach (var rp in regData.EnumerateObject())
+            {
+                if (!rp.Name.Equals("regnum", StringComparison.OrdinalIgnoreCase)) continue;
+                return rp.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rp.Value.GetString());
+            }
         }
     }
     catch
     {
-        // некорректный JSON — считаем, что regnum нет
+        // битый JSON — считаем, что regnum нет
     }
-    return false;
-}
-
-private static bool TryGetPropertyCaseInsensitive(JsonElement element, string name, out JsonElement value)
-{
-    if (element.ValueKind == JsonValueKind.Object)
-    {
-        foreach (var p in element.EnumerateObject())
-        {
-            if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-            {
-                value = p.Value;
-                return true;
-            }
-        }
-    }
-    value = default;
     return false;
 }
