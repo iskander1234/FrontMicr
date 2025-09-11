@@ -110,3 +110,14 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         }
     }
 }
+
+
+
+
+
+
+
+
+var result = await _mediator.Send(command, cancellationToken);
+    // Возвращаем 200 всегда с вашим BaseResponseDto (как и в остальных местах)
+    return Ok(result);
