@@ -1,43 +1,48 @@
-
-// Rework: если отправляем дальше (Submit) и в payload уже есть regData.regnum — обновим RegNumber
+// ★ Rework: если отправляем дальше (Submit) и в JSON есть regData.regnum — просто делаем update всего ProcessData
 if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var currentStage)
     && currentStage == ProcessStage.Rework
     && command.Action == ProcessAction.Submit)
 {
-    var regnum = TryReadRegnumFromPayloadJson(processData.PayloadJson);
-    if (!string.IsNullOrWhiteSpace(regnum)
-        && !string.Equals(processData.RegNumber, regnum, StringComparison.Ordinal))
+    // Берём JSON из команды, если прислали новый; иначе — текущий из ProcessData
+    var srcJson = !string.IsNullOrWhiteSpace(command.PayloadJson)
+        ? command.PayloadJson
+        : processData.PayloadJson;
+
+    if (!string.IsNullOrWhiteSpace(srcJson) && JsonHasRegnum(srcJson))
     {
-        processData.RegNumber = regnum;
+        // Фиксируем все изменения целиком — перезаписываем PayloadJson только если пришёл новый
+        if (!string.IsNullOrWhiteSpace(command.PayloadJson))
+            processData.PayloadJson = command.PayloadJson;
+
         await unitOfWork.ProcessDataRepository.UpdateAsync(cancellationToken, processData);
-        // ничего больше не меняем, логика ниже идёт как была
+        // Ничего больше не меняем; ниже идёт основная логика как была
     }
 }
 
 
 
-private static string? TryReadRegnumFromPayloadJson(string? payloadJson)
+private static bool JsonHasRegnum(string json)
 {
-    if (string.IsNullOrWhiteSpace(payloadJson)) return null;
-
     try
     {
-        using var doc = JsonDocument.Parse(payloadJson);
+        using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
+
+        if (root.ValueKind != JsonValueKind.Object) return false;
 
         if (TryGetPropertyCaseInsensitive(root, "regData", out var regDataEl) &&
             TryGetPropertyCaseInsensitive(regDataEl, "regnum", out var regnumEl) &&
-            regnumEl.ValueKind == JsonValueKind.String)
+            regnumEl.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(regnumEl.GetString()))
         {
-            return regnumEl.GetString();
+            return true;
         }
     }
     catch
     {
-        // некорректный JSON — игнорируем, вернём null
+        // некорректный JSON — считаем, что regnum нет
     }
-
-    return null;
+    return false;
 }
 
 private static bool TryGetPropertyCaseInsensitive(JsonElement element, string name, out JsonElement value)
