@@ -22,7 +22,6 @@ public class PaginationMeta
 }
 
 
-
 using BpmBaseApi.Shared.Dtos;
 
 namespace BpmBaseApi.Shared.Dtos.Pagination;
@@ -33,15 +32,13 @@ public class PagedResponseDto<TItem> : BaseResponseDto<List<TItem>>
 }
 
 
-
 namespace BpmBaseApi.Shared.Queries.Common;
 
-public interface IPagedQuery
+public abstract class PagedQuery
 {
-    int Page { get; set; }
-    int PageSize { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 50;
 }
-
 
 
 namespace BpmBaseApi.Shared.Queries.Common;
@@ -52,14 +49,12 @@ public static class Paging
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 200;
 
-    public static (int page, int size) Normalize(IPagedQuery q)
+    public static (int page, int size) Normalize(int page, int pageSize)
     {
-        var page = q.Page <= 0 ? DefaultPage : q.Page;
-        var size = q.PageSize <= 0 ? DefaultPageSize : q.PageSize;
-        if (size > MaxPageSize) size = MaxPageSize;
-        q.Page = page;
-        q.PageSize = size;
-        return (page, size);
+        var p = page <= 0 ? DefaultPage : page;
+        var s = pageSize <= 0 ? DefaultPageSize : pageSize;
+        if (s > MaxPageSize) s = MaxPageSize;
+        return (p, s);
     }
 }
 
@@ -73,12 +68,25 @@ public static class PaginationExtensions
 }
 
 
-Стало 
+
+БЫЛО
+
+public class GetDepartmentWorkTimeQuery : IRequest<BaseResponseDto<List<DepartmentWorkTimeResponse>>>
+{
+    public string DepartmentId { get; set; } = "";
+    public PeriodType PeriodType { get; set; }
+    public DateOnly? Date { get; set; }
+    public int Year { get; set; }
+    public int Month { get; set; }
+}
+
+СТАЛО
+
 using BpmBaseApi.Shared.Queries.Common;
-using BpmBaseApi.Shared.Dtos; // как и было
 
 public class GetDepartmentWorkTimeQuery 
-    : IPagedQuery, IRequest<BaseResponseDto<List<DepartmentWorkTimeResponse>>> // добавили IPagedQuery
+    : PagedQuery, // ← добавили базовый класс (НЕ интерфейс)
+      IRequest<BaseResponseDto<List<DepartmentWorkTimeResponse>>>
 {
     public string DepartmentId { get; set; } = "";
     public PeriodType PeriodType { get; set; }
@@ -86,16 +94,15 @@ public class GetDepartmentWorkTimeQuery
     public int Year { get; set; }
     public int Month { get; set; }
 
-    // ↓↓↓ добавлено для пагинации ↓↓↓
-    public int Page { get; set; } = Paging.DefaultPage;
-    public int PageSize { get; set; } = Paging.DefaultPageSize;
+    // поля Page и PageSize уже есть в PagedQuery
 }
 
+
 using System.Globalization;
-using BpmBaseApi.Application.Common.Extensions;            // ★
+using BpmBaseApi.Application.Common.Extensions;     // + пагинация
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Dtos.Pagination;                   // ★
+using BpmBaseApi.Shared.Dtos.Pagination;          // + PagedResponseDto, PaginationMeta
 using BpmBaseApi.Shared.Queries.Common;
 using BpmBaseApi.Shared.Responses.Common;
 using MediatR;
@@ -103,7 +110,7 @@ using MediatR;
 namespace BpmBaseApi.Application.QueryHandlers.Common;
 
 public class GetDepartmentWorkTimeQueryHandler 
-    : IRequestHandler<GetDepartmentWorkTimeQuery, PagedResponseDto<DepartmentWorkTimeResponse>> // ★ возвращаем с пагинацией
+    : IRequestHandler<GetDepartmentWorkTimeQuery, BaseResponseDto<List<DepartmentWorkTimeResponse>>> // ← тип не меняем
 {
     private readonly IUnitOfWork _unitOfWork;
 
@@ -112,11 +119,11 @@ public class GetDepartmentWorkTimeQueryHandler
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<PagedResponseDto<DepartmentWorkTimeResponse>> Handle(
+    public async Task<BaseResponseDto<List<DepartmentWorkTimeResponse>>> Handle(
         GetDepartmentWorkTimeQuery query, CancellationToken cancellationToken)
     {
-        // ★ нормализуем входные page/pageSize
-        var (page, pageSize) = Paging.Normalize(query);     // ★
+        // ★ нормализуем локально (не пишем обратно в query)
+        var (page, pageSize) = Paging.Normalize(query.Page, query.PageSize); // ★
 
         Console.WriteLine($"[Debug] DepartmetId {query.DepartmentId}");
         Console.WriteLine($"[Debug] Periodtype {query.PeriodType}, Date {query.Date}, Year {query.Year}, Month {query.Month}");
@@ -132,7 +139,7 @@ public class GetDepartmentWorkTimeQueryHandler
         else
         {
             startDate = new DateTime(query.Year, query.Month, 1);
-            endDate = startDate.AddMonths(1).AddDays(-1);   // ← оставил как у вас, логику не меняю
+            endDate = startDate.AddMonths(1).AddDays(-1);
         }
 
         Console.WriteLine($"[Debug] StartDate {startDate}, EndDate {endDate}");
@@ -177,7 +184,7 @@ public class GetDepartmentWorkTimeQueryHandler
             Console.WriteLine($"[Debug] {emp.Key} => {emp.Value.Item1}, {emp.Value.Item2}, {emp.Value.Item3}");
         }
 
-        // ↓↓↓ СОРТИРОВКУ И ПРОЕКЦИЮ НЕ МЕНЯЮ ↓↓↓
+        // ——— СОРТИРОВКУ/ПРОЕКЦИЮ НЕ МЕНЯЕМ ———
         var culture = CultureInfo.GetCultureInfo("ru-RU");
 
         var full = sessions
@@ -212,10 +219,13 @@ public class GetDepartmentWorkTimeQueryHandler
             })
             .ToList();
 
-        var total = full.Count;                              // ★ считаем всего
-        var pageItems = full.ToPage(page, pageSize).ToList(); // ★ режем страницу (in-memory, логику не трогаем)
+        var total = full.Count;                         // ★ всего записей
+        var pageItems = full.ToPage(page, pageSize)     // ★ режем страницу (in-memory)
+                          .ToList();
 
-        return new PagedResponseDto<DepartmentWorkTimeResponse> // ★ тот же список, + мета
+        // ВОЗВРАЩАЕМ тип как раньше (BaseResponseDto<List<...>>),
+        // но фактически объект — PagedResponseDto (наследник) с полем pagination.
+        return new PagedResponseDto<DepartmentWorkTimeResponse> // ★
         {
             Data = pageItems,
             Pagination = new PaginationMeta(total, page, pageSize)
@@ -228,3 +238,4 @@ public class GetDepartmentWorkTimeQueryHandler
         return $"{(int)time.Value.TotalHours:D2}:{time.Value.Minutes:D2}";
     }
 }
+
