@@ -26,9 +26,6 @@ if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var currentStage)
 }
 
 
-
-
-
 private static bool JsonHasRegnum(string json)
 {
     try
