@@ -252,152 +252,30 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
     }
 }
 
-            /*public async Task<BaseResponseDto<StartProcessResponse>> Handle(StartProcessCommand command, CancellationToken cancellationToken)
+
+
+           // ★ 4) Сортировка по дате последней активности (max Timestamp из history) — по убыванию
+            var lastActivityByPdId = history
+                .GroupBy(h => h.ProcessDataId)
+                .ToDictionary(g => g.Key, g => g.Max(x => x.Timestamp));
+
+            var ordered = processes
+                .OrderByDescending(p => lastActivityByPdId.TryGetValue(p.Id, out var ts) ? ts : DateTime.MinValue)
+                .ToList();
+
+            // 5) Маппим как было
+            var mapped = mapper.Map<List<GetUserRelatedProcessesResponse>>(ordered);
+
+            // ★ 6) Пагинация in-memory (порядок уже отсортирован по дате)
+            var total = mapped.Count;
+            var pageItems = mapped.ToPage(page, pageSize).ToList();
+
+            // ★ 7) Возвращаем как и раньше BaseResponseDto<List<...>>,
+            //     фактически — его наследник с полем pagination (не ломает фронт)
+            return new PagedResponseDto<GetUserRelatedProcessesResponse>
             {
-                var process = await unitOfWork.ProcessRepository.GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
-                    ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден", ErrorCodesEnum.Business);
-
-                var currentBlock = await unitOfWork.BlockRepository.GetByIdAsync(cancellationToken, process.StartBlockId!.Value)
-                    ?? throw new HandlerException("Стартовый шаг не найден", ErrorCodesEnum.Business);
-
-                var requestNumber = await helperService.GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
-
-                var options = new JsonSerializerOptions
-                {
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                };
-
-                var payloadJson = JsonSerializer.Serialize(command.Payload, options);
-                var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
-                var formData = payloadReader.ReadSection<FormDataDto>(command.Payload, "formData");
-
-                var processDataCreatedEvent = new ProcessDataCreatedEvent
-                {
-                    ProcessId = process.Id,
-                    ProcessCode = process.ProcessCode,
-                    ProcessName = process.ProcessName,
-                    RegNumber = requestNumber,
-                    InitiatorCode = regData.UserCode,
-                    InitiatorName = regData.UserName,
-                    StatusCode = "Started",
-                    StatusName = "В работе",
-                    PayloadJson = payloadJson,
-                    Title = formData.Name
-                };
-
-                await unitOfWork.ProcessDataRepository.RaiseEvent(processDataCreatedEvent, cancellationToken);
-
-
-
-
-                var sysData = payloadReader.ReadSection<SysData>(command.Payload, "sysData");
-                var executor = payloadReader.ReadSection<ExecutorDto>(command.Payload, "formData", "executorTabNumberNavigation");
-
-
-                var departments = payloadReader.ReadDepartment(command.Payload);
-                var approvers = payloadReader.ReadApprover(command.Payload);
-
-                if (command.ProcessCode== "Activity")
-                {
-                    if (executor.UserCode == regData.UserCode)
-                    {
-                        currentBlock = await unitOfWork.BlockRepository.GetByFilterAsync(cancellationToken,
-                            b => b.ProcessId == process.Id && b.Id == currentBlock.NextBlockId)
-                            ?? throw new HandlerException("Подробности следующего блока не найдены", ErrorCodesEnum.Business);
-                    }
-                    else
-                    {
-                        approvers = new List<ApproverDto>();
-                        approvers.Add(new ApproverDto
-                        {
-                            UserCode = executor.UserCode,
-                            UserName = executor.UserName
-                        });
-                    }
-
-                    var taskParentCreatedEvent = new ProcessTaskCreatedEvent();
-                    if (approvers.Count > 1)
-                    {
-                        taskParentCreatedEvent = new ProcessTaskCreatedEvent
-                        {
-                            ProcessDataId = processDataCreatedEvent.EntityId,
-                            BlockId = currentBlock.Id,
-                            BlockCode = currentBlock.BlockCode,
-                            BlockName = currentBlock.BlockName,
-                            AssigneeCode = "system",
-                            AssigneeName = "system",
-                            Status = "Waiting",
-                            ProcessCode = process.ProcessCode,
-                            ProcessName = process.ProcessName,
-                            RegNumber = requestNumber,
-                            InitiatorCode = regData.UserCode,
-                            InitiatorName = regData.UserName,
-                            Title = formData.Name
-                        };
-                        await unitOfWork.ProcessTaskRepository.RaiseEvent(taskParentCreatedEvent, cancellationToken);
-                    }
-                    foreach (var approverDto in approvers)
-                    {
-                        var taskCreatedEvent = new ProcessTaskCreatedEvent
-                        {
-                            ProcessDataId = processDataCreatedEvent.EntityId,
-                            BlockId = currentBlock.Id,
-                            BlockCode = currentBlock.BlockCode,
-                            BlockName = currentBlock.BlockName,
-                            Status = "Pending",
-                            PayloadJson = payloadJson,
-                            ProcessCode = command.ProcessCode,
-                            ProcessName = process.ProcessName,
-                            RegNumber = requestNumber,
-                            ParentTaskId = taskParentCreatedEvent.EntityId == Guid.Empty ? (Guid?)null : taskParentCreatedEvent.EntityId,
-                            InitiatorCode = regData.UserCode,
-                            InitiatorName = regData.UserName,
-                            AssigneeCode = approverDto.UserCode,
-                            AssigneeName = approverDto.UserName,
-                            Title = formData.Name
-                        };
-                        await unitOfWork.ProcessTaskRepository.RaiseEvent(taskCreatedEvent, cancellationToken);
-                        await helperService.RefreshUserTaskCacheAsync(approverDto.UserCode, cancellationToken);
-                    }
-
-
-                    var processTaskHistoryCreatedEvent = new ProcessTaskHistoryCreatedEvent
-                    {
-                        ProcessDataId = processDataCreatedEvent.EntityId,
-                        TaskId = processDataCreatedEvent.EntityId, // Возможно стоит заменить на ID задачи, если будет доступен
-                        Action = ProcessAction.Start.ToString(),
-                        BlockName = "Регистрационная форма",
-                        Timestamp = DateTime.Now,
-                        PayloadJson = payloadJson,
-                        Comment = sysData?.Comment,
-                        Description = sysData?.Comment,
-                        ProcessCode = command.ProcessCode,
-                        ProcessName = process.ProcessName,
-                        RegNumber = requestNumber,
-                        InitiatorCode = regData.UserCode,
-                        InitiatorName = regData.UserName,
-                        Title = formData.Name
-                    };
-
-                    await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(processTaskHistoryCreatedEvent, cancellationToken);
-                }
-
-                await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
-                {
-                    EntityId = processDataCreatedEvent.EntityId,
-                    BlockCode = currentBlock.BlockCode,
-                    BlockName = currentBlock.BlockName
-                }, cancellationToken);
-
-                return new BaseResponseDto<StartProcessResponse>
-                {
-                    Data = new StartProcessResponse
-                    {
-                        ProcessGuid = processDataCreatedEvent.EntityId,
-                        RegNumber = requestNumber,
-                        BlockCode = currentBlock.BlockCode,
-                        BlockName = currentBlock.BlockName
-                    }
-                };
-            }*/
+                Data = pageItems,
+                Pagination = new PaginationMeta(total, page, pageSize)
+            };
+        }
 
