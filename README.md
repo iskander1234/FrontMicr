@@ -1,56 +1,34 @@
-// ★ Rework: если отправляем дальше (Submit) и в JSON уже есть regData.regnum — делаем полный update ProcessData
-if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var currentStage)
-    && currentStage == ProcessStage.Rework
-    && command.Action == ProcessAction.Submit)
+using AutoMapper;
+using BpmBaseApi.Persistence;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Queries.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+
+namespace BpmBaseApi.Application.QueryHandlers.Process
 {
-    // command.PayloadJson у тебя Dictionary<string, object>? — если пришёл новый payload, сериализуем его.
-    string candidateJson = command.PayloadJson is not null
-        ? JsonSerializer.Serialize(command.PayloadJson)
-        : processData.PayloadJson;
-
-    if (!string.IsNullOrWhiteSpace(candidateJson) && JsonHasRegnum(candidateJson))
+    public class GetUserRelatedProcessesQueryHandler(
+        IMapper mapper,
+        IUnitOfWork unitOfWork
+        ) : IRequestHandler<GetUserRelatedProcessesQuery, BaseResponseDto<List<GetUserRelatedProcessesResponse>>>
     {
-        // Сохраняем ВСЁ (как "простой update") через событийную модель
-        await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
+        public async Task<BaseResponseDto<List<GetUserRelatedProcessesResponse>>> Handle(GetUserRelatedProcessesQuery query, CancellationToken cancellationToken)
         {
-            EntityId      = processData.Id,
-            StatusCode    = processData.StatusCode,
-            StatusName    = processData.StatusName,
-            PayloadJson   = candidateJson,               // если пришёл новый — сохранится новый
-            InitiatorCode = processData.InitiatorCode,
-            InitiatorName = processData.InitiatorName,
-            Title         = processData.Title
-        }, cancellationToken);
-        // дальше вся твоя логика идёт как была
-    }
-}
+            var history = await unitOfWork.ProcessTaskHistoryRepository.GetByFilterListAsync(cancellationToken,
+            h => h.AssigneeCode == query.UserCode && h.ProcessCode == query.ProcessCode);
 
+            var processDataIds = history
+            .Select(h => h.ProcessDataId)
+            .Distinct()
+            .ToList();
 
-private static bool JsonHasRegnum(string json)
-{
-    try
-    {
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        if (root.ValueKind != JsonValueKind.Object) return false;
+            var processes = await unitOfWork.ProcessDataRepository.GetByFilterListAsync(cancellationToken,
+            p => processDataIds.Contains(p.Id));
 
-        // case-insensitive поиск regData.regnum
-        foreach (var p in root.EnumerateObject())
-        {
-            if (!p.Name.Equals("regData", StringComparison.OrdinalIgnoreCase)) continue;
-            var regData = p.Value;
-            if (regData.ValueKind != JsonValueKind.Object) return false;
+            var mapped = mapper.Map<List<GetUserRelatedProcessesResponse>>(processes);
 
-            foreach (var rp in regData.EnumerateObject())
-            {
-                if (!rp.Name.Equals("regnum", StringComparison.OrdinalIgnoreCase)) continue;
-                return rp.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(rp.Value.GetString());
-            }
+            return new BaseResponseDto<List<GetUserRelatedProcessesResponse>> { Data = mapped };
         }
     }
-    catch
-    {
-        // битый JSON — считаем, что regnum нет
-    }
-    return false;
 }
