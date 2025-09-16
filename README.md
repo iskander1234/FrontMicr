@@ -310,7 +310,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
 
         }
 
-    
         private static string GetCamundaVarNameForStage(ProcessStage stage) => stage switch
         {
             ProcessStage.Approval => "agreement",
@@ -320,8 +319,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             ProcessStage.Rework => "refinement", // <<< БЫЛО "agreement", теперь "refinement"
             _ => "agreement" // безопасный дефолт
         };
-
-       
 
         private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
             ProcessStage stage,
@@ -626,7 +623,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 }
             }
         }
-
 
         public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
         {
