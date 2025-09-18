@@ -1,287 +1,269 @@
-Надо создать новый старт для ITSM будем называть  StartProcessITSMCommandHandler  это будет обнолютно новый маршрут только связан с ITSM похож на наш 1 в 1 просто надо будет убрать все лишнее только сделаем пусть данные отправить все будет как сейчас есть а просто там обновление лишные убрать создать новый StartProcessITSMCommandHandler
-using BpmBaseApi.Domain.Entities.Event.Process;
-using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Services.Interfaces;
-using BpmBaseApi.Shared.Commands.Process;
-using BpmBaseApi.Shared.Enum;
-using BpmBaseApi.Shared.Models.Camunda;
-using BpmBaseApi.Shared.Models.Process;
+1) Команда
+
+using BpmBaseApi.Shared.Dtos;
 using BpmBaseApi.Shared.Responses.Process;
 using MediatR;
+using System.Collections.Generic;
+
+namespace BpmBaseApi.Shared.Commands.Process
+{
+    /// <summary>Старт процесса (ITSM-упрощённый)</summary>
+    public class StartProcessITSMCommand : IRequest<BaseResponseDto<StartProcessResponse>>
+    {
+        /// <summary>Код процесса</summary>
+        public string ProcessCode { get; set; } = default!;
+
+        /// <summary>Код инициатора</summary>
+        public string InitiatorCode { get; set; } = default!;
+
+        /// <summary>ФИО инициатора</summary>
+        public string? InitiatorName { get; set; }
+
+        /// <summary>Данные формы/входные параметры процесса (как есть)</summary>
+        public Dictionary<string, object>? Payload { get; set; }
+    }
+}
+
+
+
+2) Хэндлер StartProcessITSMCommandHandler
+
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Responses.Process;
+using BpmBaseApi.Shared.Models.Camunda;
 using BpmBaseApi.Shared.Dtos;
-using static BpmBaseApi.Shared.Models.Process.CommonData;
+using MediatR;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class StartProcessCommandHandler(
+    /// <summary>
+    /// Упрощённый старт под ITSM:
+    /// - без поиска/переиспользования Draft/Started
+    /// - не сливаем payload, не редактируем существующие записи
+    /// - создаём ProcessData=Started, стартуем Camunda, апсертим files из payload, пишем Start в историю
+    /// </summary>
+    public class StartProcessITSMCommandHandler(
         IUnitOfWork unitOfWork,
-        IPayloadReaderService payloadReader,
         IProcessTaskService helperService,
-        ICamundaService camundaService)
-        : IRequestHandler<StartProcessCommand, BaseResponseDto<StartProcessResponse>>
+        ICamundaService camundaService
+    ) : IRequestHandler<StartProcessITSMCommand, BaseResponseDto<StartProcessResponse>>
     {
         public async Task<BaseResponseDto<StartProcessResponse>> Handle(
-            StartProcessCommand command,
-            CancellationToken cancellationToken)
+            StartProcessITSMCommand command,
+            CancellationToken ct)
         {
+            // 0) Процесс
             var process = await unitOfWork.ProcessRepository
-                              .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
-                          ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден",
-                              ErrorCodesEnum.Business);
+                             .GetByFilterAsync(ct, p => p.ProcessCode == command.ProcessCode)
+                         ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден",
+                             ErrorCodesEnum.Business);
 
+            // 1) Готовим payload JSON (как есть, максимум — впишем regnum и startdate если их нет)
             var jsonOptions = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-            var payloadJson = JsonSerializer.Serialize(command.Payload, jsonOptions);
+            var payloadJson = JsonSerializer.Serialize(command.Payload ?? new Dictionary<string, object>(), jsonOptions);
 
-            var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
-            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
+            // вытащим заголовок документа (если есть)
+            var documentTitle = TryRead<string>(payloadJson, "processData", "documentTitle");
 
-            // NEW: читаем номер из payload.regData.regnum
-            var regnumFromPayload = TryGetRegnumFromPayload(payloadJson);
-
-            // === A) если regnum задан, пробуем использовать существующую заявку ===
-            if (!string.IsNullOrWhiteSpace(regnumFromPayload))
+            // если regnum не задан — сгенерируем и впишем
+            var regnum = TryRead<string>(payloadJson, "regData", "regnum");
+            if (string.IsNullOrWhiteSpace(regnum))
             {
-                var alreadyStarted = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
-                    cancellationToken,
-                    p => p.ProcessCode == process.ProcessCode
-                         && p.RegNumber == regnumFromPayload
-                         && p.StatusCode == "Started"
-                );
-                if (alreadyStarted is not null)
-                {
-                    return new BaseResponseDto<StartProcessResponse>
-                    {
-                        Data = new StartProcessResponse
-                            { ProcessGuid = alreadyStarted.Id, RegNumber = alreadyStarted.RegNumber }
-                    };
-                }
-
-                var draft = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
-                    cancellationToken,
-                    p => p.ProcessCode == process.ProcessCode
-                         && p.RegNumber == regnumFromPayload
-                         && p.StatusCode == "Draft"
-                );
-
-                if (draft is not null)
-                {
-                    // NEW: синхронизируем payload.regData.regnum с реальным номером черновика
-                    payloadJson = SetRegnumInPayload(payloadJson, draft.RegNumber, jsonOptions);
-
-                    // всегда фиксируем новый момент старта в payload
-                    payloadJson = SetStartDateInPayload(payloadJson, DateTime.Now, jsonOptions);
-                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
-                    {
-                        EntityId = draft.Id,
-                        StatusCode = "Started",
-                        StatusName = "В работе",
-                        PayloadJson = payloadJson,
-                        InitiatorCode = regData?.UserCode,
-                        InitiatorName = regData?.UserName,
-                        Title = processDataDto?.DocumentTitle ?? draft.Title,
-                        StartedAt = DateTime.Now
-                    }, cancellationToken);
-
-                    await StartCamundaAndLinkAsync(draft.Id, cancellationToken);
-                    await AddFilesUpsertAsync(draft.Id, payloadJson, cancellationToken);
-                    await WriteHistoryStartIfAbsentAsync(draft.Id, draft.RegNumber, payloadJson, cancellationToken);
-
-                    return new BaseResponseDto<StartProcessResponse>
-                    {
-                        Data = new StartProcessResponse { ProcessGuid = draft.Id, RegNumber = draft.RegNumber }
-                    };
-                }
+                regnum = await helperService.GenerateRequestNumberAsync(command.ProcessCode, ct);
+                payloadJson = SetInPayload(payloadJson, jsonOptions, ("regData", "regnum", regnum));
             }
 
-            // === B) черновика нет — создаём новую Started ===
-            var requestNumber = await helperService.GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
+            // всегда проставим startdate (момент старта)
+            payloadJson = SetInPayload(payloadJson, jsonOptions, ("regData", "startdate", DateTime.Now.ToString("o")));
 
-            // NEW: вписываем номер в payload.regData.regnum
-            payloadJson = SetRegnumInPayload(payloadJson, requestNumber, jsonOptions);
-            payloadJson = SetStartDateInPayload(payloadJson, DateTime.Now, jsonOptions);
-            var createdEvt = new ProcessDataCreatedEvent
+            // 2) Создаём ProcessData = Started
+            var created = new ProcessDataCreatedEvent
             {
-                ProcessId = process.Id,
-                ProcessCode = process.ProcessCode,
-                ProcessName = process.ProcessName,
-                RegNumber = requestNumber,
-                InitiatorCode = regData.UserCode,
-                InitiatorName = regData.UserName,
-                StatusCode = "Started",
-                StatusName = "В работе",
-                PayloadJson = payloadJson,
-                Title = processDataDto.DocumentTitle,
-                StartedAt = DateTime.Now
+                ProcessId     = process.Id,
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = regnum,
+                InitiatorCode = command.InitiatorCode,
+                InitiatorName = command.InitiatorName,
+                StatusCode    = "Started",
+                StatusName    = "В работе",
+                PayloadJson   = payloadJson,
+                Title         = documentTitle,
+                StartedAt     = DateTime.Now
             };
-            await unitOfWork.ProcessDataRepository.RaiseEvent(createdEvt, cancellationToken);
+            await unitOfWork.ProcessDataRepository.RaiseEvent(created, ct);
 
-            await StartCamundaAndLinkAsync(createdEvt.EntityId, cancellationToken);
-            await AddFilesUpsertAsync(createdEvt.EntityId, payloadJson, cancellationToken);
-            await WriteHistoryStartIfAbsentAsync(createdEvt.EntityId, requestNumber, payloadJson, cancellationToken);
+            // 3) Стартуем Camunda и связываем
+            var pi = await camundaService.CamundaStartProcess(new CamundaStartProcessRequest
+            {
+                processCode = command.ProcessCode,
+                variables   = new Dictionary<string, object> { { "processGuid", created.EntityId.ToString() } }
+            });
+
+            await unitOfWork.ProcessDataRepository.RaiseEvent(
+                new ProcessDataProcessInstanseIdChangedEvent
+                {
+                    EntityId          = created.EntityId,
+                    ProcessInstanceId = pi
+                },
+                ct);
+
+            // 4) Апсертим files из payload (если есть)
+            await UpsertFilesFromPayloadAsync(created.EntityId, payloadJson, unitOfWork, ct);
+
+            // 5) Пишем историю "Start"
+            await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(new ProcessTaskHistoryCreatedEvent
+            {
+                ProcessDataId = created.EntityId,
+                TaskId        = created.EntityId,
+                Action        = "Start",
+                ActionName    = "Зарегистрировано",
+                BlockName     = "Регистрационная форма",
+                Timestamp     = DateTime.Now,
+                PayloadJson   = payloadJson,
+                Comment       = "",
+                Description   = "",
+
+                // важные not null
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = regnum,
+                InitiatorCode = command.InitiatorCode,
+                InitiatorName = command.InitiatorName,
+                AssigneeCode  = command.InitiatorCode,
+                AssigneeName  = command.InitiatorName,
+                Title         = documentTitle
+            }, ct);
 
             return new BaseResponseDto<StartProcessResponse>
             {
-                Data = new StartProcessResponse { ProcessGuid = createdEvt.EntityId, RegNumber = requestNumber }
+                Data = new StartProcessResponse
+                {
+                    ProcessGuid = created.EntityId,
+                    RegNumber   = regnum
+                }
             };
+        }
 
-            // ---------- ЛОКАЛЬНЫЕ ФУНКЦИИ (NEW) ----------
+        // ===== helpers =====
 
-            static string? TryGetRegnumFromPayload(string payload)
+        private static T? TryRead<T>(string json, params string[] path)
+        {
+            try
             {
-                try
+                var node = JsonNode.Parse(json);
+                foreach (var p in path)
                 {
-                    var root = JsonNode.Parse(payload)!.AsObject();
-                    return root["regData"]?["regnum"]?.GetValue<string>()?.Trim();
+                    node = (node as JsonObject)?[p];
+                    if (node is null) return default;
                 }
-                catch
-                {
-                    return null;
-                }
+
+                return node.Deserialize<T>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { return default; }
+        }
+
+        private static string SetInPayload(string json, JsonSerializerOptions opts, (string section, string key, object value) kv)
+        {
+            var root = (JsonNode.Parse(json) as JsonObject) ?? new JsonObject();
+
+            if (root[kv.section] is not JsonObject sec)
+            {
+                sec = new JsonObject();
+                root[kv.section] = sec;
             }
 
-            static string SetRegnumInPayload(string payload, string regnum, JsonSerializerOptions opts)
+            sec[kv.key] = JsonSerializer.SerializeToNode(kv.value, kv.value.GetType(), opts);
+            return JsonSerializer.Serialize(root, opts);
+        }
+
+        private static async Task UpsertFilesFromPayloadAsync(
+            Guid processDataId,
+            string payloadJson,
+            IUnitOfWork unitOfWork,
+            CancellationToken ct)
+        {
+            try
             {
-                var root = JsonNode.Parse(payload)!.AsObject();
-                if (root["regData"] is not JsonObject rd)
+                var root  = JsonNode.Parse(payloadJson)!.AsObject();
+                var files = root["files"] as JsonArray;
+                if (files is null || files.Count == 0) return;
+
+                // берём всё (и удалённые, и активные)
+                var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
+                    ct, f => f.ProcessDataId == processDataId);
+
+                var byFileId = existing
+                    .Where(x => x.FileId != Guid.Empty)
+                    .ToDictionary(x => x.FileId, x => x);
+
+                foreach (var node in files.OfType<JsonObject>())
                 {
-                    rd = new JsonObject();
-                    root["regData"] = rd;
-                }
+                    var fileIdStr = node["fileId"]?.GetValue<string>();
+                    var fileName  = node["fileName"]?.GetValue<string>();
+                    var fileType  = node["fileType"]?.GetValue<string>();
 
-                rd["regnum"] = regnum;
-                return JsonSerializer.Serialize(root, opts);
-            }
+                    if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
+                        throw new HandlerException("Каждый объект в \"files\" должен иметь непустые fileName и fileType",
+                            ErrorCodesEnum.Business);
 
-            async Task StartCamundaAndLinkAsync(Guid processDataId, CancellationToken ct)
-            {
-                var pi = await camundaService.CamundaStartProcess(new CamundaStartProcessRequest
-                {
-                    processCode = command.ProcessCode,
-                    variables = new Dictionary<string, object> { { "processGuid", processDataId.ToString() } }
-                });
+                    if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
+                        throw new HandlerException("Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
+                            ErrorCodesEnum.Business);
 
-                await unitOfWork.ProcessDataRepository.RaiseEvent(
-                    new ProcessDataProcessInstanseIdChangedEvent
+                    if (!byFileId.TryGetValue(fileId, out var ex))
                     {
-                        EntityId = processDataId,
-                        ProcessInstanceId = pi
-                    },
-                    ct);
-            }
-            
-            async Task AddFilesUpsertAsync(Guid processDataId, string payload, CancellationToken ct)
-            {
-                try
-                {
-                    var root = JsonNode.Parse(payload)!.AsObject();
-                    var files = root["files"] as JsonArray;
-                    if (files is null || files.Count == 0) return;
-
-                    // важно: берём все (и удалённые, и активные)
-                    var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
-                        ct, f => f.ProcessDataId == processDataId);
-
-                    var byFileId = existing
-                        .Where(x => x.FileId != Guid.Empty)
-                        .ToDictionary(x => x.FileId, x => x);
-
-                    foreach (var node in files.OfType<JsonObject>())
-                    {
-                        var fileIdStr = node["fileId"]?.GetValue<string>();
-                        var fileName = node["fileName"]?.GetValue<string>();
-                        var fileType = node["fileType"]?.GetValue<string>();
-
-                        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
-                            throw new HandlerException(
-                                "Каждый объект в \"files\" должен иметь непустые fileName и fileType",
-                                ErrorCodesEnum.Business);
-                        if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
-                            throw new HandlerException(
-                                "Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
-                                ErrorCodesEnum.Business);
-
-                        if (!byFileId.TryGetValue(fileId, out var ex))
+                        await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
                         {
-                            await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
+                            EntityId      = Guid.NewGuid(),
+                            ProcessDataId = processDataId,
+                            FileId        = fileId,
+                            FileName      = fileName!,
+                            FileType      = fileType!
+                        }, ct);
+                    }
+                    else
+                    {
+                        if (ex.State != ProcessFileState.Active || ex.FileName != fileName || ex.FileType != fileType)
+                        {
+                            await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
                             {
-                                EntityId = Guid.NewGuid(),
-                                ProcessDataId = processDataId,
-                                FileId = fileId,
-                                FileName = fileName!,
-                                FileType = fileType!
+                                EntityId = ex.Id,
+                                State    = ProcessFileState.Active,
+                                FileName = fileName,
+                                FileType = fileType
                             }, ct);
-                        }
-                        else
-                        {
-                            // если был удалён раньше — вернём в активные; если имя/тип изменились — обновим
-                            if (ex.State != ProcessFileState.Active || ex.FileName != fileName ||
-                                ex.FileType != fileType)
-                            {
-                                await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
-                                {
-                                    EntityId = ex.Id,
-                                    State = ProcessFileState.Active,
-                                    FileName = fileName,
-                                    FileType = fileType
-                                }, ct);
-                            }
                         }
                     }
                 }
-                catch
-                {
-                    /* логирование по желанию */
-                }
             }
-
-
-            async Task WriteHistoryStartIfAbsentAsync(Guid processDataId, string regNumber, string payload,
-                CancellationToken ct)
+            catch
             {
-                var hasStart = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
-                    ct, h => h.ProcessDataId == processDataId && h.Action == ProcessAction.Start.ToString());
-                if (hasStart > 0) return;
-
-                await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(new ProcessTaskHistoryCreatedEvent
-                {
-                    ProcessDataId = processDataId,
-                    TaskId = processDataId,
-                    Action = ProcessAction.Start.ToString(),
-                    BlockName = "Регистрационная форма",
-                    Timestamp = DateTime.Now,
-                    PayloadJson = payload,
-                    Comment = "",
-                    Description = "",
-                    ProcessCode = command.ProcessCode,
-                    ProcessName = process.ProcessName,
-                    RegNumber = regNumber,
-                    InitiatorCode = regData.UserCode,
-                    InitiatorName = regData.UserName,
-                    AssigneeCode = regData.UserCode,
-                    AssigneeName = regData.UserName,
-                    Title = processDataDto.DocumentTitle,
-                    ActionName = "Зарегистрировано"
-                }, ct);
+                // опционально: логирование
             }
-        }
-
-        static string SetStartDateInPayload(string payload, DateTime dt, JsonSerializerOptions opts)
-        {
-            var root = JsonNode.Parse(payload)!.AsObject();
-            if (root["regData"] is not JsonObject rd)
-            {
-                rd = new JsonObject();
-                root["regData"] = rd;
-            }
-
-            // ISO 8601; если хочешь 'Z' — используй dt.ToUniversalTime().ToString("o")
-            rd["startdate"] = dt.ToString("o");
-            return JsonSerializer.Serialize(root, opts);
         }
     }
+}
+
+
+3) Роут контроллера
+
+[HttpPost("itsm/start")]
+[SwaggerResponse(StatusCodes.Status200OK, "Процесс запущен", typeof(BaseResponseDto<StartProcessResponse>))]
+[SwaggerResponse(StatusCodes.Status400BadRequest)]
+[SwaggerResponse(StatusCodes.Status404NotFound)]
+[SwaggerResponse(StatusCodes.Status409Conflict)]
+[SwaggerResponse(StatusCodes.Status500InternalServerError)]
+public async Task<IActionResult> StartITSMAsync([FromBody] StartProcessITSMCommand command, CancellationToken ct)
+{
+    var result = await mediator.Send(command, ct);
+    return Ok(result);
 }
