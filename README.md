@@ -296,7 +296,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 Data = new SendProcessResponse { Success = true }
             };
         }
-        
         async Task HandleEndOfSequentialRoundAsync(
             ProcessTaskEntity parentTask,
             ProcessDataEntity processData,
@@ -349,7 +348,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             ProcessStage.Registration => "registrar",
             _ => "agreement" // безопасный дефолт
         };
-        
+
         private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
             ProcessStage stage,
             ProcessCondition condition,
@@ -377,7 +376,18 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                         [varName] = (action == ProcessAction.Submit)
                     };
                 
-                
+                case ProcessStage.Registration:
+                    // registrar: Submit => true, Reject => false (на доработку)
+                {
+                    bool isPositive = action switch
+                    {
+                        ProcessAction.Submit => true,
+                        ProcessAction.Reject => false,
+                        _ => (condition == ProcessCondition.accept) // запасной вариант
+                    };
+                    return new Dictionary<string, object> { [varName] = isPositive };
+                }
+
                 case ProcessStage.Approval:
                 {
                     // agreement: accept => true, remake/reject => false
@@ -417,18 +427,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                     return new Dictionary<string, object> { [varName] = isPositive };
                 }
 
-                case ProcessStage.Registration:
-                    // registrar: Submit => true, Reject => false (на доработку)
-                {
-                    bool isPositive = action switch
-                    {
-                        ProcessAction.Submit => true,
-                        ProcessAction.Reject => false,
-                        _ => (condition == ProcessCondition.accept) // запасной вариант
-                    };
-                    return new Dictionary<string, object> { [varName] = isPositive };
-                }
-                
+
                 default:
                 {
                     // дефолт: accept => true
@@ -692,7 +691,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 }
             }
         }
-        
+
         public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
         {
             if (payload == null || !payload.TryGetValue(key, out var value))
