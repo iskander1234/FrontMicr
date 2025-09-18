@@ -1,3 +1,4 @@
+Надо создать новый старт для ITSM будем называть  StartProcessITSMCommandHandler  это будет обнолютно новый маршрут только связан с ITSM похож на наш 1 в 1 просто надо будет убрать все лишнее только сделаем пусть данные отправить все будет как сейчас есть а просто там обновление лишные убрать создать новый StartProcessITSMCommandHandler
 using BpmBaseApi.Domain.Entities.Event.Process;
 using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Persistence.Interfaces;
