@@ -8,32 +8,87 @@ camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest {
 });
 
 
-// вход: Dictionary<string, object> variables
-var camundaVars = new Dictionary<string, object>();
+using System.Threading.Tasks;
+using AutoMapper;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Services.Camunda.CamundaProvider.Models;
+using BpmBaseApi.Services.Camunda.ServiceCamunda;
+using BpmBaseApi.Services.Camunda.ServiceCamunda.Models;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Models.Camunda;
 
-foreach (var (key, val) in variables)
+namespace BpmBaseApi.Services.Camunda
 {
-    if (val is null) continue;
-
-    string type = val switch
+    public class CamundaService
+        (
+        IMapper mapper,
+        ICamundaProvider camundaProvider
+        ) : ICamundaService
     {
-        bool   => "Boolean",
-        int    => "Integer",
-        long   => "Long",
-        double => "Double",
-        decimal=> "Double", // или "Number" если свой бэкенд
-        DateTime => "Date",
-        _      => "String"
-    };
+        public async Task<CamundaClaimedTasksResponse> CamundaClaimedTasks(string processGuid, string stage, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var result = await camundaProvider.ClaimedTasksAsync(processGuid, stage, cancellationToken);
 
-    camundaVars[key] = new { value = val, type };
+                if (result.Count == 0)
+                {
+                    throw new HandlerException($"Не найдена задача в Camunda: {processGuid} {stage};");
+                }
+
+                var task = result.FirstOrDefault();
+                
+                return new CamundaClaimedTasksResponse()
+                {
+                    TaskId = task.id,
+                    Name = task.name,
+                };
+            }
+            catch (HandlerException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
+            }
+        }
+
+        public async Task<string> CamundaStartProcess(CamundaStartProcessRequest request, CancellationToken cancellationToken)
+        {
+            var requestProvider = mapper.Map<StartProcessProviderRequest>(request);
+            try
+            {
+                var result = await camundaProvider.StartProcessAsync(request.processCode, requestProvider, cancellationToken);
+                return result;
+            }
+            catch (HandlerException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
+            }
+        }
+
+        public async Task<CamundaSubmitTaskResponse> CamundaSubmitTask(CamundaSubmitTaskRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await camundaProvider.SubmitTaskAsync(request.TaskId, request.Variables, cancellationToken);
+
+                return mapper.Map<CamundaSubmitTaskResponse>(result);
+            }
+            catch (HandlerException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
+            }
+        }
+    }
 }
-
-// Итоговый POST должен выглядеть так:
-var body = new
-{
-    variables = camundaVars
-    // withVariablesInReturn = false  // опционально
-};
-
-// POST /task/submit?taskId=...
