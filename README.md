@@ -106,6 +106,81 @@ info: System.Net.Http.HttpClient.Refit.Implementation.Generated+BpmBaseApiServic
 Я взял с ProcessTaskId но все равно 
 
 {
+  "taskId": "3d3d1089-72ef-45d4-91fd-5e31adea23b4",
+  "action": "Submit",
+  "condition": "accept",
+  "senderUserCode": "string",
+  "senderUserName": "string",
+  "comment": "string",
+  "payloadJson": {
+    "regData": {
+    "userCode": "m.ilespayev",
+    "userName": "Илеспаев Меииржан Анварович",
+    "departmentId": "00ЗП-0013",
+    "departmentName": "Управление автоматизации бизнес-процессов",
+    "startdate": "2025-09-22T18:37:34.0268409+05:00",
+    "regnum": "CH-0039-2025"
+  },
+  "sysInfo": {
+    "userCode": "m.ilespayev",
+    "userName": "Илеспаев Меииржан Анварович",
+    "comment": "comment",
+    "action": "submit",
+    "condition": "string"
+  },
+  "initiator": {
+    "id": 611,
+    "name": "Илеспаев Меииржан Анварович",
+    "position": "Начальник управления",
+    "login": "m.ilespayev",
+    "statusCode": 6,
+    "statusDescription": "Работа",
+    "depId": "00ЗП-0013",
+    "depName": "Управление автоматизации бизнес-процессов",
+    "parentDepId": "00ЗП-0010",
+    "parentDepName": "Департамент цифровой трансформации",
+    "isFilial": false,
+    "mail": "m.ilespayev@enpf.kz",
+    "localPhone": "0",
+    "mobilePhone": "+7(702) 171-71-14",
+    "isManager": true,
+    "managerTabNumber": "4340",
+    "disabled": false,
+    "tabNumber": "00ЗП-00240",
+    "loginAD": "m.ilespayev",
+    "shortName": "Илеспаев М.А."
+  },
+  "processData": {
+    "CustomerId": "00ЗП-0010",
+    "CustomerName": "Департамент цифровой трансформации",
+    "DocumentTitle": "erwerwer",
+    "SystemId": "11111111-0000-0000-0000-000000000002,11111111-0000-0000-0000-000000000003",
+    "SystemName": "1С Предприятие 8, модуль Бюджетирование,1С Предприятие 8, модуль Учет договоров",
+    "ProcessCategoryId": "",
+    "ProcessCategoryName": "",
+    "ProcessesId": "",
+    "ProcessesName": "",
+    "SystemOwnerId": "00ЗП-0010",
+    "SystemOwnerName": "",
+    "ChangeReason": "fdsfsdf",
+    "PlanningInfo": "",
+    "CurrentFunctionality": "sdffd",
+    "Requirements": "32424",
+    "Impact": "geg",
+    "TestCases": "ergerger",
+    "analyst":
+    {
+      "classificationCode": "Normal",
+      "classificationName": "Нормальное изменение ",
+      "deadline": "5"
+    }
+
+
+  }
+  }
+}
+
+{
   "data": null,
   "message": "Ошибка при отправке Msg:Error submitting task: Unknown property used in expression: ${classification == 'Normal'}. Cause: Cannot resolve identifier 'classification'",
   "errorCode": 1002
