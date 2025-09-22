@@ -1,74 +1,83 @@
+private static Dictionary<string, object> BuildItsmLevelVariables(Dictionary<string, object>? payload)
 {
-  "processCode": "ChangeRequest",
-  "initiatorCode": "m.ilespayev",
-  "initiatorName": "string",
-  "payload": {
-   
- 
-  "regData": {
-    "userCode": "m.ilespayev",
-    "userName": "Илеспаев Меииржан Анварович",
-    "departmentId": "00ЗП-0013",
-    "departmentName": "Управление автоматизации бизнес-процессов",
-    "startdate": "2025-09-22T14:18:22.3148923+05:00",
-    "regnum": ""
-  },
-  "sysInfo": {
-    "userCode": "m.ilespayev",
-    "userName": "Илеспаев Меииржан Анварович",
-    "comment": "comment",
-    "action": "submit",
-    "condition": "string"
-  },
-  "initiator": {
-    "id": 611,
-    "name": "Илеспаев Меииржан Анварович",
-    "position": "Начальник управления",
-    "login": "m.ilespayev",
-    "statusCode": 6,
-    "statusDescription": "Работа",
-    "depId": "00ЗП-0013",
-    "depName": "Управление автоматизации бизнес-процессов",
-    "parentDepId": "00ЗП-0010",
-    "parentDepName": "Департамент цифровой трансформации",
-    "isFilial": false,
-    "mail": "m.ilespayev@enpf.kz",
-    "localPhone": "0",
-    "mobilePhone": "+7(702) 171-71-14",
-    "isManager": true,
-    "managerTabNumber": "4340",
-    "disabled": false,
-    "tabNumber": "00ЗП-00240",
-    "loginAD": "m.ilespayev",
-    "shortName": "Илеспаев М.А."
-  },
-  "processData": {
-    "CustomerId": "00ЗП-0010",
-    "CustomerName": "Департамент цифровой трансформации",
-    "DocumentTitle": "erwerwer",
-    "SystemId": "11111111-0000-0000-0000-000000000002,11111111-0000-0000-0000-000000000003",
-    "SystemName": "1С Предприятие 8, модуль Бюджетирование,1С Предприятие 8, модуль Учет договоров",
-    "ProcessCategoryId": "",
-    "ProcessCategoryName": "",
-    "ProcessesId": "",
-    "ProcessesName": "",
-    "SystemOwnerId": "00ЗП-0010",
-    "SystemOwnerName": "",
-    "ChangeReason": "fdsfsdf",
-    "PlanningInfo": "",
-    "CurrentFunctionality": "sdffd",
-    "Requirements": "32424",
-    "Impact": "geg",
-    "TestCases": "ergerger"
-  }
- 
- 
-  }
+    if (payload is null) return new();
+
+    static string? ReadStr(Dictionary<string, object> p, string key)
+    {
+        if (!p.TryGetValue(key, out var v) || v is null) return null;
+        var json = JsonSerializer.Serialize(v);
+        return JsonSerializer.Deserialize<string>(json, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+    }
+
+    // читаем уровень приоритета из разных возможных ключей
+    string? level =
+        ReadStr(payload, "classification") ??
+        ReadStr(payload, "classifacation") ?? // фронтовая опечатка
+        ReadStr(payload, "itsmLevel") ??
+        ReadStr(payload, "level") ??
+        ReadStr(payload, "priority");
+
+    if (string.IsNullOrWhiteSpace(level)) return new();
+
+    var n = level.Trim().ToLowerInvariant();
+    string? canonical = n switch
+    {
+        "emergency" => "Emergency",
+        "standard"  => "Standard",
+        "normal"    => "Normal",
+        _           => null
+    };
+
+    return canonical is null
+        ? new()
+        : new Dictionary<string, object>
+        {
+            ["classification"] = canonical  // <-- ключ, который ждёт BPMN
+            // при желании можно дублировать:
+            // ["itsmLevel"] = canonical
+        };
 }
 
 
+
+
+
+
+
+Добавьте перед CamundaStartProcess:
+
+// собрать плоские переменные
+var vars = new Dictionary<string, object?>
 {
-  "data": null,
-  "message": "Ошибка при отправке Msg:Error submitting task: Unknown property used in expression: ${classification == 'Normal'}. Cause: Cannot resolve identifier 'classification'",
-  "errorCode": 1002
+    ["processGuid"]   = created.EntityId.ToString(),
+    ["initiatorCode"] = command.InitiatorCode,
+    ["initiatorName"] = command.InitiatorName
+};
+
+// читать из payload.processData / payload корня — как у вас сделано в ReadItsmLevel
+var level = ReadItsmLevel(payloadJson); // возвращает Emergency|Standard|Normal или null
+if (!string.IsNullOrWhiteSpace(level))
+    vars["classification"] = level; // <-- не itsmLevel
+
+// старт процесса
+var pi = await camundaService.CamundaStartProcess(new CamundaStartProcessRequest
+{
+    processCode = command.ProcessCode,
+    variables   = vars.Where(kv => kv.Value is not null).ToDictionary(k => k.Key, v => v.Value!)
+});
+
+
+{
+  "taskId": "ce41bf90-772f-49b0-8332-9f7271cf4dc1",
+  "action": "Submit",
+  "condition": "accept",
+  "senderUserCode": "m.ilespayev",
+  "senderUserName": "Илеспаев Меииржан",
+  "comment": "ok",
+  "payloadJson": {
+    "classification": "Emergency"
+  }
 }
