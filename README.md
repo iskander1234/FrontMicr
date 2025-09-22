@@ -1,8 +1,4 @@
-curl -X 'POST' \
-  'http://localhost:5143/api/v1/itsm/send' \
-  -H 'accept: text/plain; x-api-version=1.0' \
-  -H 'Content-Type: application/json; x-api-version=1.0' \
-  -d '{
+{
   "taskId": "9f322c76-5747-4954-ade8-720c878f1960",
   "action": "Submit",
   "condition": "accept",
@@ -73,4 +69,4 @@ curl -X 'POST' \
     "TestCases": "ergerger"
   }
   }
-}'
+}
