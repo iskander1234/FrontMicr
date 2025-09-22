@@ -1,346 +1,343 @@
 using System.Text.Encodings.Web;
-using BpmBaseApi.Domain.Entities.Event.Process;
-using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Persistence.Interfaces;
-using BpmBaseApi.Shared.Commands.Process;
-using BpmBaseApi.Shared.Dtos;
-using BpmBaseApi.Shared.Enum;
-using BpmBaseApi.Shared.Responses.Process;
-using MediatR;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using AutoMapper;
-using Microsoft.Extensions.Caching.Memory;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Services.Interfaces;
-using BpmBaseApi.Shared.Models.Process;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Responses.Process;
 using BpmBaseApi.Shared.Models.Camunda;
+using BpmBaseApi.Shared.Dtos;
+using MediatR;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class SendProcessCommandHandler(
-        IMapper mapper,
+    /// <summary>
+    /// Упрощённый старт под ITSM:
+    /// - без поиска/переиспользования Draft/Started
+    /// - не сливаем payload, не редактируем существующие записи
+    /// - создаём ProcessData=Started, стартуем Camunda, апсертим files из payload, пишем Start в историю
+    /// - ВАЖНО: если нашли классификацию — кладём process variable "classification" (Emergency|Standard|Normal)
+    /// </summary>
+    public class StartProcessITSMCommandHandler(
         IUnitOfWork unitOfWork,
-        IMemoryCache cache,
+        IProcessTaskService helperService,
+        ICamundaService camundaService
+    ) : IRequestHandler<StartProcessITSMCommand, BaseResponseDto<StartProcessResponse>>
+    {
+        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
+            StartProcessITSMCommand command,
+            CancellationToken ct)
+        {
+            // 0) Процесс
+            var process = await unitOfWork.ProcessRepository
+                             .GetByFilterAsync(ct, p => p.ProcessCode == command.ProcessCode)
+                         ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден",
+                             ErrorCodesEnum.Business);
+
+            // 1) Готовим payload JSON (как есть, максимум — впишем regnum и startdate если их нет)
+            var jsonOptions = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+            var payloadJson = JsonSerializer.Serialize(command.Payload ?? new Dictionary<string, object>(), jsonOptions);
+
+            // вытащим заголовок документа (если есть)
+            var documentTitle = TryRead<string>(payloadJson, "processData", "documentTitle");
+
+            // если regnum не задан — сгенерируем и впишем
+            var regnum = TryRead<string>(payloadJson, "regData", "regnum");
+            if (string.IsNullOrWhiteSpace(regnum))
+            {
+                regnum = await helperService.GenerateRequestNumberAsync(command.ProcessCode, ct);
+                payloadJson = SetInPayload(payloadJson, jsonOptions, ("regData", "regnum", regnum));
+            }
+
+            // всегда проставим startdate (момент старта)
+            payloadJson = SetInPayload(payloadJson, jsonOptions, ("regData", "startdate", DateTime.Now.ToString("o")));
+
+            // 2) Создаём ProcessData = Started
+            var created = new ProcessDataCreatedEvent
+            {
+                ProcessId     = process.Id,
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = regnum,
+                InitiatorCode = command.InitiatorCode,
+                InitiatorName = command.InitiatorName,
+                StatusCode    = "Started",
+                StatusName    = "В работе",
+                PayloadJson   = payloadJson,
+                Title         = documentTitle,
+                StartedAt     = DateTime.Now
+            };
+            await unitOfWork.ProcessDataRepository.RaiseEvent(created, ct);
+
+            // 3) Переменные Camunda (plain key/value)
+            var vars = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["processGuid"]   = created.EntityId.ToString(),
+                ["initiatorCode"] = string.IsNullOrWhiteSpace(command.InitiatorCode) ? null : command.InitiatorCode,
+                ["initiatorName"] = string.IsNullOrWhiteSpace(command.InitiatorName) ? null : command.InitiatorName
+            };
+
+            // КЛЮЧЕВОЕ: попробуем найти classification и положим в переменную
+            var classification = ReadClassification(payloadJson);
+            if (!string.IsNullOrWhiteSpace(classification))
+                vars["classification"] = classification;
+
+            var cleaned = vars.Where(kv => kv.Value is not null)
+                              .ToDictionary(kv => kv.Key, kv => kv.Value!);
+
+            if (cleaned.Values.Any(v => v is IDictionary<string, object>))
+                throw new HandlerException("Camunda variables must be plain key/value.", ErrorCodesEnum.Business);
+
+            // 4) Старт процесса
+            var pi = await camundaService.CamundaStartProcess(new CamundaStartProcessRequest
+            {
+                processCode = command.ProcessCode,
+                variables   = cleaned
+                // businessKey = created.EntityId.ToString(), // включить, если поддерживается
+            });
+
+            await unitOfWork.ProcessDataRepository.RaiseEvent(
+                new ProcessDataProcessInstanseIdChangedEvent
+                {
+                    EntityId          = created.EntityId,
+                    ProcessInstanceId = pi
+                },
+                ct);
+
+            // 5) Апсертим files из payload (если есть)
+            await UpsertFilesFromPayloadAsync(created.EntityId, payloadJson, unitOfWork, ct);
+
+            // 6) История "Start"
+            await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(new ProcessTaskHistoryCreatedEvent
+            {
+                ProcessDataId = created.EntityId,
+                TaskId        = created.EntityId,
+                Action        = "Start",
+                ActionName    = "Зарегистрировано",
+                BlockName     = "Регистрационная форма",
+                Timestamp     = DateTime.Now,
+                PayloadJson   = payloadJson,
+                Comment       = "",
+                Description   = "",
+                ProcessCode   = process.ProcessCode,
+                ProcessName   = process.ProcessName,
+                RegNumber     = regnum,
+                InitiatorCode = command.InitiatorCode,
+                InitiatorName = command.InitiatorName,
+                AssigneeCode  = command.InitiatorCode,
+                AssigneeName  = command.InitiаторName,
+                Title         = documentTitle
+            }, ct);
+
+            return new BaseResponseDto<StartProcessResponse>
+            {
+                Data = new StartProcessResponse
+                {
+                    ProcessGuid = created.EntityId,
+                    RegNumber   = regnum
+                }
+            };
+        }
+
+        // ===== helpers =====
+
+        // Читаем classification из payload: processData.analyst.classificationCode | classification | level | priority
+        static string? ReadClassification(string json)
+        {
+            var lvl = TryRead<string>(json, "processData", "analyst", "classificationCode")
+                      ?? TryRead<string>(json, "processData", "classification")
+                      ?? TryRead<string>(json, "processData", "level")
+                      ?? TryRead<string>(json, "processData", "priority");
+
+            if (string.IsNullOrWhiteSpace(lvl)) return null;
+            var v = lvl.Trim();
+
+            return v.Equals("Emergency", StringComparison.OrdinalIgnoreCase) ? "Emergency" :
+                   v.Equals("Standard",  StringComparison.OrdinalIgnoreCase) ? "Standard"  :
+                   v.Equals("Normal",    StringComparison.OrdinalIgnoreCase) ? "Normal"    :
+                   null;
+        }
+
+        private static T? TryRead<T>(string json, params string[] path)
+        {
+            try
+            {
+                JsonNode? node = JsonNode.Parse(json);
+                foreach (var p in path)
+                {
+                    if (node is not JsonObject obj) return default;
+                    node = obj.FirstOrDefault(kv =>
+                        string.Equals(kv.Key, p, StringComparison.OrdinalIgnoreCase)).Value;
+                    if (node is null) return default;
+                }
+                return node.Deserialize<T>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch { return default; }
+        }
+
+        private static string SetInPayload(string json, JsonSerializerOptions opts, (string section, string key, object value) kv)
+        {
+            var root = (JsonNode.Parse(json) as JsonObject) ?? new JsonObject();
+
+            if (root[kv.section] is not JsonObject sec)
+            {
+                sec = new JsonObject();
+                root[kv.section] = sec;
+            }
+
+            sec[kv.key] = JsonSerializer.SerializeToNode(kv.value, kv.value.GetType(), opts);
+            return JsonSerializer.Serialize(root, opts);
+        }
+
+        private static async Task UpsertFilesFromPayloadAsync(
+            Guid processDataId,
+            string payloadJson,
+            IUnitOfWork unitOfWork,
+            CancellationToken ct)
+        {
+            try
+            {
+                var root  = JsonNode.Parse(payloadJson)!.AsObject();
+                var files = root["files"] as JsonArray;
+                if (files is null || files.Count == 0) return;
+
+                var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
+                    ct, f => f.ProcessDataId == processDataId);
+
+                var byFileId = existing
+                    .Where(x => x.FileId != Guid.Empty)
+                    .ToDictionary(x => x.FileId, x => x);
+
+                foreach (var node in files.OfType<JsonObject>())
+                {
+                    var fileIdStr = node["fileId"]?.GetValue<string>();
+                    var fileName  = node["fileName"]?.GetValue<string>();
+                    var fileType  = node["fileType"]?.GetValue<string>();
+
+                    if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
+                        throw new HandlerException("Каждый объект в \"files\" должен иметь непустые fileName и fileType",
+                            ErrorCodesEnum.Business);
+
+                    if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
+                        throw new HandlerException("Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
+                            ErrorCodesEnum.Business);
+
+                    if (!byFileId.TryGetValue(fileId, out var ex))
+                    {
+                        await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
+                        {
+                            EntityId      = Guid.NewGuid(),
+                            ProcessDataId = processDataId,
+                            FileId        = fileId,
+                            FileName      = fileName!,
+                            FileType      = fileType!
+                        }, ct);
+                    }
+                    else
+                    {
+                        if (ex.State != ProcessFileState.Active || ex.FileName != fileName || ex.FileType != fileType)
+                        {
+                            await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
+                            {
+                                EntityId = ex.Id,
+                                State    = ProcessFileState.Active,
+                                FileName = fileName,
+                                FileType = fileType
+                            }, ct);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // логирование при желании
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+using System.Text.Json;
+using BpmBaseApi.Domain.Entities.Process;
+using BpmBaseApi.Domain.Models;
+using BpmBaseApi.Persistence.Interfaces;
+using BpmBaseApi.Services.Interfaces;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
+using BpmBaseApi.Shared.Models.Camunda;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Shared.Enum;
+
+namespace BpmBaseApi.Application.CommandHandlers.Process
+{
+    /// <summary>
+    /// ITSM Send:
+    /// - читает classification из payloadJson (processData.analyst.classificationCode | classification | level | priority)
+    /// - при системном parent: шлёт ВМЕСТЕ со stage-булевыми переменными (как старый Send) => gateway видит ${classification == 'Normal'}
+    /// - иначе поднимаем родителя в Pending
+    /// </summary>
+    public class SendProcessITSMCommandHandler(
+        IUnitOfWork unitOfWork,
         ICamundaService camundaService,
         IProcessTaskService processTaskService)
         : IRequestHandler<SendProcessCommand, BaseResponseDto<SendProcessResponse>>
     {
-        public async Task<BaseResponseDto<SendProcessResponse>> Handle(SendProcessCommand command,
-            CancellationToken cancellationToken)
+        public async Task<BaseResponseDto<SendProcessResponse>> Handle(
+            SendProcessCommand command, CancellationToken ct)
         {
-            // Берём задачу без фильтра по статусу — чтобы поймать Waiting и вернуть 400 с подсказкой
+            // Текущая подзадача должна быть Pending
             var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
-                cancellationToken,
-                p => p.Id == command.TaskId
-            ) ?? throw new HandlerException("Задача не найдена", ErrorCodesEnum.Business);
+                                  ct, t => t.Id == command.TaskId && t.Status == "Pending")
+                              ?? throw new HandlerException("Задача не найдена или уже обработана",
+                                  ErrorCodesEnum.Business);
 
-            var processData =
-                await unitOfWork.ProcessDataRepository.GetByIdAsync(cancellationToken, currentTask.ProcessDataId)
-                ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
+            var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(ct, currentTask.ProcessDataId)
+                              ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
 
-            // Rework → Submit: апдейтим ProcessData ТОЛЬКО если в payload есть regData.regnum
-            if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var currentStage)
-                && currentStage == ProcessStage.Rework
-                && command.Action == ProcessAction.Submit)
-            {
-                // payload может не прийти — тогда апдейт просто пропускаем
-                if (command.PayloadJson is not null)
-                {
-                    var incomingJson = JsonSerializer.Serialize(command.PayloadJson);
+            var parentTask = await unitOfWork.ProcessTaskRepository.GetByIdAsync(ct, currentTask.ParentTaskId!.Value);
 
-                    // ← ключевое условие: обновляем только если есть regData.regnum
-                    if (JsonHasRegnum(incomingJson))
-                    {
-                        var mergedJson = MergePayloadPreserve(processData.PayloadJson, incomingJson);
-
-                        // апдейтим только при реальных изменениях
-                        if (!string.Equals(mergedJson, processData.PayloadJson, StringComparison.Ordinal))
-                        {
-                            var newTitle = BuildTitle(processData.Title, mergedJson);
-                            
-                            await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
-                            {
-                                EntityId = processData.Id,
-                                StatusCode = processData.StatusCode,
-                                StatusName = processData.StatusName,
-                                PayloadJson = mergedJson,
-                                InitiatorCode = processData.InitiatorCode,
-                                InitiatorName = processData.InitiatorName,
-                                Title = newTitle
-                                // StartedAt не трогаем
-                            }, cancellationToken);
-
-                            // синхронизируем таблицу файлов под новый payload
-                            await ReconcileFilesAsync(processData.Id, mergedJson, unitOfWork, cancellationToken);
-
-                            // держим актуальную версию локально, чтобы ниже читалась новая
-                            processData.PayloadJson = mergedJson;
-                            processData.Title = newTitle;
-                        }
-                    }
-                    // если regnum нет — апдейт пропускаем, идём дальше по вашей логике
-                }
-            }
-
-
-            // Последовательный ли режим из processData.approvalTypeCode
-            var pdPayload = JsonSerializer.Deserialize<Dictionary<string, object>>(processData.PayloadJson);
-            bool isSequential = ReadIsSequentialFromProcessData(pdPayload);
-
-            // Если Sequentially и задача НЕ Pending → 400 и сказать кто Pending
-            if (isSequential && !string.Equals(currentTask.Status, "Pending", StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessTaskEntity? activePending = null;
-
-                if (currentTask.ParentTaskId != null)
-                {
-                    activePending = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
-                        cancellationToken,
-                        t => t.ParentTaskId == currentTask.ParentTaskId && t.Status == "Pending"
-                    );
-                }
-
-                if (activePending == null)
-                {
-                    activePending = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
-                        cancellationToken,
-                        t => t.ProcessDataId == currentTask.ProcessDataId
-                             && t.BlockCode == currentTask.BlockCode
-                             && t.Status == "Pending"
-                    );
-                }
-
-                var responsible = activePending?.AssigneeCode ?? "не найден";
-                throw new HandlerException(
-                    $"Отправка запрещена: сначала должен отправить исполнитель со статусом Pending ({responsible}).",
-                    ErrorCodesEnum.Business // у тебя это маппится в HTTP 400
-                );
-            }
-
-            // Старая проверка «только Pending» (для параллельного режима как было)
-            if (!string.Equals(currentTask.Status, "Pending", StringComparison.OrdinalIgnoreCase))
-                throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
-
-            var recipients = ExtractFromPayload<List<UserInfo>>(command.PayloadJson, "recipients") ?? new();
-            //var comment = ExtractFromPayload<string>(command.PayloadJson, "comment");
-
-            // Делегирование
-            if (command.Action == ProcessAction.Delegate && recipients.Any())
-            {
-                await processTaskService.HandleDelegationAsync(currentTask, processData, command, recipients,
-                    cancellationToken);
-                return new BaseResponseDto<SendProcessResponse>
-                {
-                    Data = new SendProcessResponse { Success = true }
-                };
-            }
-
-            // Если sequential — закрываем текущего. Если negative → чистим остальных и идём к Camunda.
-            // Если positive (accept) → поднимаем следующего Waiting -> Pending и выходим.
-            if (isSequential)
-            {
-                if (!Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var stage))
-                    throw new InvalidOperationException($"Unknown process stage: {currentTask.BlockCode}");
-
-                var parent = await unitOfWork.ProcessTaskRepository
-                    .GetByIdAsync(cancellationToken, currentTask.ParentTaskId!.Value);
-
-                var siblings = await unitOfWork.ProcessTaskRepository
-                    .GetByFilterListAsync(cancellationToken, t => t.ParentTaskId == parent.Id);
-
-                // 1) лог + закрываем текущего (ОДИН РАЗ)
-                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
-                    cancellationToken);
-                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-                // текущего — убрать из кэша его Pending (важно для positive пути)
-                await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-
-                // 2) определяем исход шага
-                bool isNegative = stage switch
-                {
-                    ProcessStage.Rework => command.Action == ProcessAction.Cancel,
-                    ProcessStage.Signing => command.Action == ProcessAction.Reject,
-                    _ => command.Condition is ProcessCondition.remake or ProcessCondition.reject
-                };
-
-                if (isNegative)
-                {
-                    // закрываем все Waiting в этом раунде
-                    var affectedAssignees = siblings
-                        .Where(t => t.Status == "Waiting" && !string.IsNullOrEmpty(t.AssigneeCode))
-                        .Select(t => t.AssigneeCode)
-                        .Distinct()
-                        .ToList();
-
-                    foreach (var w in siblings.Where(t => t.Status == "Waiting"))
-                        await processTaskService.FinalizeTaskAsync(w, cancellationToken);
-
-                    // у тех, у кого были waiting — почистить
-                    foreach (var a in affectedAssignees)
-                        await processTaskService.RefreshUserTaskCacheAsync(a, cancellationToken);
-
-                    // завершаем раунд (Camunda/родитель) и ВОЗВРАЩАЕМСЯ
-                    await HandleEndOfSequentialRoundAsync(parent, processData, stage, command, cancellationToken);
-                    return new BaseResponseDto<SendProcessResponse>
-                        { Data = new SendProcessResponse { Success = true } };
-                }
-                else
-                {
-                    // positive: ищем следующего
-                    var next = siblings
-                        .Where(t => t.Status == "Waiting")
-                        .OrderBy(t => t.Order ?? int.MaxValue)
-                        .ThenBy(t => t.Created)
-                        .FirstOrDefault();
-
-                    if (next != null)
-                    {
-                        await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
-                        {
-                            EntityId = next.Id,
-                            Status = "Pending"
-                        }, cancellationToken);
-
-                        // у next теперь новая Pending — обновим его кэш
-                        if (!string.IsNullOrEmpty(next.AssigneeCode))
-                            await processTaskService.RefreshUserTaskCacheAsync(next.AssigneeCode, cancellationToken);
-
-                        return new BaseResponseDto<SendProcessResponse>
-                            { Data = new SendProcessResponse { Success = true } };
-                    }
-
-                    // «следующего» нет — раунд завершён: Camunda/родитель и ВОЗВРАЩАЕМСЯ
-                    await HandleEndOfSequentialRoundAsync(parent, processData, stage, command, cancellationToken);
-                    return new BaseResponseDto<SendProcessResponse>
-                        { Data = new SendProcessResponse { Success = true } };
-                }
-            }
-
-            var pendingSiblings = await unitOfWork.ProcessTaskRepository.CountAsync(
-                cancellationToken,
-                t => t.ParentTaskId == currentTask.ParentTaskId
-                     && t.Id != currentTask.Id
-                     && t.Status == "Pending");
-
-            if (pendingSiblings > 0)
-            {
-                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
-                    cancellationToken);
-                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-
-                // текущего — убрать из кэша его Pending
-                await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-
-                return new BaseResponseDto<SendProcessResponse>
-                {
-                    Data = new SendProcessResponse { Success = true }
-                };
-            }
-
-            var parentTask = await unitOfWork.ProcessTaskRepository
-                .GetByIdAsync(cancellationToken, currentTask.ParentTaskId!.Value);
-
-            if (parentTask.AssigneeCode == "system")
-            {
-                var claimedTasksResponse =
-                    await camundaService.CamundaClaimedTasks(processData.ProcessInstanceId, parentTask.BlockCode)
-                    ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
-
-                if (!Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var stageForCamunda))
-                    throw new InvalidOperationException($"Unknown process stage: {currentTask.BlockCode}");
-
-                // получаем правильные булевы переменные под конкретный этап
-                var variables = await BuildCamundaVariablesAsync(
-                    stageForCamunda, command.Condition, command.Action,
-                    processData.Id, parentTask.Id, unitOfWork, cancellationToken);
-
-                var submitResponse = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
-                {
-                    TaskId = claimedTasksResponse.TaskId,
-                    Variables = variables
-                });
-
-                if (!submitResponse.Success)
-                    throw new HandlerException($"Ошибка при отправке Msg:{submitResponse.Msg}", ErrorCodesEnum.Camunda);
-
-                await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode,
-                    cancellationToken);
-                await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-                await processTaskService.FinalizeTaskAsync(parentTask, cancellationToken);
-
-                // иначе у части пользователей висит старая карточка
-                if (!string.IsNullOrWhiteSpace(currentTask.AssigneeCode))
-                    await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode!, cancellationToken);
-
-                return new BaseResponseDto<SendProcessResponse> { Data = new SendProcessResponse { Success = true } };
-            }
-
-            await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-            await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-            // финализировали current выше — теперь обновим его кэш один раз
-            await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-            // поднимем родителя
-            await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
-            {
-                EntityId = parentTask.Id,
-                Status = "Pending"
-            }, cancellationToken);
-
-            // у родителя появился Pending — обновим его кэш (если реальный исполнитель)
-            if (!string.IsNullOrWhiteSpace(parentTask.AssigneeCode) &&
-                !string.Equals(parentTask.AssigneeCode, "system", StringComparison.OrdinalIgnoreCase))
-            {
-                await processTaskService.RefreshUserTaskCacheAsync(parentTask.AssigneeCode, cancellationToken);
-            }
-
-            return new BaseResponseDto<SendProcessResponse>
-            {
-                Data = new SendProcessResponse { Success = true }
-            };
-        }
-
-        // private Dictionary<string, object> GetCamundaVariablesForStage(ProcessStage stage)
-        // {
-        //     return stage switch
-        //     {
-        //         ProcessStage.Approval => new() { { "agreement", true } },
-        //         ProcessStage.Signing => new() { { "sign", true } },
-        //         _ => new()
-        //     };
-        // }
-        async Task HandleEndOfSequentialRoundAsync(
-            ProcessTaskEntity parentTask,
-            ProcessDataEntity processData,
-            ProcessStage stageForCamunda,
-            SendProcessCommand command,
-            CancellationToken ct)
-        {
-            // если родитель — system, отправляем в Camunda
             if (string.Equals(parentTask.AssigneeCode, "system", StringComparison.OrdinalIgnoreCase))
             {
-                var claimedTasksResponse =
-                    await camundaService.CamundaClaimedTasks(processData.ProcessInstanceId, parentTask.BlockCode)
-                    ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
+                var claimed = await camundaService.CamundaClaimedTasks(
+                                  processData.ProcessInstanceId, parentTask.BlockCode)
+                              ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
 
-                var variables = await BuildCamundaVariablesAsync(
-                    stageForCamunda, command.Condition, command.Action,
+                // 1) булевые для этапа (как в старом Send)
+                var stage = Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var st) ? st : ProcessStage.Approval;
+                var stageVars = await BuildCamundaVariablesAsync(
+                    stage, command.Condition, command.Action,
                     processData.Id, parentTask.Id, unitOfWork, ct);
 
-                var submitResponse = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
+                // 2) строковая classification
+                var classVars = BuildClassificationVariables(command.PayloadJson);
+
+                // 3) объединяем
+                foreach (var kv in classVars) stageVars[kv.Key] = kv.Value;
+
+                var submit = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
                 {
-                    TaskId = claimedTasksResponse.TaskId,
-                    Variables = variables
+                    TaskId = claimed.TaskId,
+                    Variables = stageVars
                 });
 
-                if (!submitResponse.Success)
-                    throw new HandlerException($"Ошибка при отправке Msg:{submitResponse.Msg}", ErrorCodesEnum.Camunda);
+                if (!submit.Success)
+                    throw new HandlerException($"Ошибка при отправке Msg:{submit.Msg}", ErrorCodesEnum.Camunda);
 
                 await processTaskService.FinalizeTaskAsync(parentTask, ct);
             }
             else
             {
-                // иначе — поднимаем родителя в Pending
+                // Родитель не system — делаем его Pending
                 await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
                 {
                     EntityId = parentTask.Id,
@@ -350,144 +347,81 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 if (!string.IsNullOrWhiteSpace(parentTask.AssigneeCode))
                     await processTaskService.RefreshUserTaskCacheAsync(parentTask.AssigneeCode, ct);
             }
+
+            // Лог + закрытие текущей подзадачи
+            await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, ct);
+            await processTaskService.FinalizeTaskAsync(currentTask, ct);
+            await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
+
+            return new BaseResponseDto<SendProcessResponse>
+            {
+                Data = new SendProcessResponse { Success = true }
+            };
         }
+
+        /// <summary>
+        /// Ищем classification в payload (вложенность поддерживается).
+        /// Возвращаем {"classification": "Emergency|Standard|Normal"} либо пустой словарь.
+        /// </summary>
+        private static Dictionary<string, object> BuildClassificationVariables(Dictionary<string, object>? payload)
+        {
+            if (payload is null) return new();
+
+            static string? ReadStr(Dictionary<string, object> p, string key)
+            {
+                if (!p.TryGetValue(key, out var v) || v is null) return null;
+                var json = JsonSerializer.Serialize(v);
+                return JsonSerializer.Deserialize<string>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+
+            // Ищем processData.analyst.classificationCode
+            string? fromAnalyst = null;
+            if (payload.TryGetValue("processData", out var pdRaw) && pdRaw is not null)
+            {
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                    JsonSerializer.Serialize(pdRaw), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (pd != null && pd.TryGetValue("analyst", out var aRaw) && aRaw is not null)
+                {
+                    var analyst = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                        JsonSerializer.Serialize(aRaw),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (analyst != null) fromAnalyst = ReadStr(analyst, "classificationCode");
+                }
+            }
+
+            var level = fromAnalyst
+                        ?? ReadStr(payload, "classification")
+                        ?? ReadStr(payload, "itsmLevel")
+                        ?? ReadStr(payload, "level")
+                        ?? ReadStr(payload, "priority");
+
+            if (string.IsNullOrWhiteSpace(level)) return new();
+
+            var canonical = level.Trim().ToLowerInvariant() switch
+            {
+                "emergency" => "Emergency",
+                "standard"  => "Standard",
+                "normal"    => "Normal",
+                _ => null
+            };
+
+            return canonical is null ? new() : new() { ["classification"] = canonical };
+        }
+
+        // ==== Вспомогалки для этапных булевых, как в старом Send ====
 
         private static string GetCamundaVarNameForStage(ProcessStage stage) => stage switch
         {
-            ProcessStage.Approval => "agreement",
-            ProcessStage.Signing => "sign",
-            ProcessStage.Execution => "executed",
+            ProcessStage.Approval       => "agreement",
+            ProcessStage.Signing        => "sign",
+            ProcessStage.Execution      => "executed",
             ProcessStage.ExecutionCheck => "executionCheck",
-            ProcessStage.Rework => "refinement", // <<< БЫЛО "agreement", теперь "refinement"
-            ProcessStage.Registration => "registrar",
-            _ => "agreement" // безопасный дефолт
+            ProcessStage.Rework         => "refinement",
+            ProcessStage.Registration   => "registrar",
+            _                           => "agreement"
         };
-
-        // private static bool IsPositiveByCondition(ProcessCondition condition) =>
-        //     condition == ProcessCondition.accept;
-        //
-        // // Для Approval учитываем коллективное «вето»
-        // private static async Task<bool> IsApprovalPositiveConsideringHistoryAsync(
-        //     bool currentIsPositive,
-        //     Guid processDataId,
-        //     Guid? parentTaskId,
-        //     IUnitOfWork unitOfWork,
-        //     CancellationToken ct)
-        // {
-        //     if (!currentIsPositive) return false; // уже отрицательно — дальше не проверяем
-        //
-        //     // Ищем в истории по этому же раунду (ParentTaskId) любой remake/reject
-        //     var negativeCount = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
-        //         ct,
-        //         h => h.ProcessDataId == processDataId
-        //              && h.BlockCode == ProcessStage.Approval.ToString()
-        //              && h.ParentTaskId == parentTaskId
-        //              && (h.Condition == nameof(ProcessCondition.remake)
-        //                  || h.Condition == nameof(ProcessCondition.reject)));
-        //
-        //     return negativeCount == 0; // если были отрицательные — итог false
-        // }
-
-        // private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
-        //     ProcessStage stage,
-        //     ProcessCondition condition,
-        //     ProcessAction action,
-        //     Guid processDataId,
-        //     Guid? parentTaskId,
-        //     IUnitOfWork unitOfWork,
-        //     CancellationToken ct)
-        // {
-        //     var varName = GetCamundaVarNameForStage(stage);
-        //
-        //     switch (stage)
-        //     {
-        //         case ProcessStage.Rework:
-        //             // refinement: Submit => true, Cancel => false
-        //             return new Dictionary<string, object> { [varName] = (action == ProcessAction.Submit) };
-        //
-        //         case ProcessStage.Signing:
-        //             // sign: Submit => true, Reject => false
-        //             return new Dictionary<string, object> { [varName] = (action == ProcessAction.Submit) };
-        //
-        //         case ProcessStage.Registration:
-        //         {
-        //             // registrar: Submit => true, Reject => false (на доработку)
-        //             bool isPositive = action switch
-        //             {
-        //                 ProcessAction.Submit => true,
-        //                 ProcessAction.Reject => false,
-        //                 _ => (condition == ProcessCondition.accept) // запасной вариант
-        //             };
-        //             return new Dictionary<string, object> { [varName] = isPositive };
-        //         }
-        //
-        //         case ProcessStage.Approval:
-        //         {
-        //             // 1) Пытаемся определить исход по Condition
-        //             bool? isPositiveMaybe = condition switch
-        //             {
-        //                 ProcessCondition.accept => true,
-        //                 ProcessCondition.remake or ProcessCondition.reject => false,
-        //                 _ => null
-        //             };
-        //
-        //             // 2) Если Condition нет — fallback на Action
-        //             if (isPositiveMaybe is null)
-        //             {
-        //                 isPositiveMaybe = action switch
-        //                 {
-        //                     ProcessAction.Submit => true, // фронт часто шлёт только Submit
-        //                     ProcessAction.Reject => false,
-        //                     ProcessAction.Cancel => false,
-        //                     _ => (bool?)null
-        //                 };
-        //             }
-        //
-        //             // 3) Если всё ещё null — считаем false (или бросай HandlerException по желанию)
-        //             bool isPositive = isPositiveMaybe ?? false;
-        //
-        //             // 4) «Вето» в рамках того же раунда (родителя)
-        //             if (isPositive)
-        //             {
-        //                 isPositive = await IsStagePositiveConsideringHistoryAsync(
-        //                     ProcessStage.Approval, isPositive, processDataId, parentTaskId, unitOfWork, ct);
-        //             }
-        //
-        //             return new Dictionary<string, object> { [varName] = isPositive };
-        //         }
-        //
-        //         case ProcessStage.Execution:
-        //         {
-        //             // executed: accept => true, remake/reject => false, иначе Submit => true
-        //             bool isPositive = condition switch
-        //             {
-        //                 ProcessCondition.accept => true,
-        //                 ProcessCondition.remake or ProcessCondition.reject => false,
-        //                 _ => action == ProcessAction.Submit
-        //             };
-        //             return new Dictionary<string, object> { [varName] = isPositive };
-        //         }
-        //
-        //         case ProcessStage.ExecutionCheck:
-        //         {
-        //             // executionCheck: та же логика, только другое имя переменной
-        //             bool isPositive = condition switch
-        //             {
-        //                 ProcessCondition.accept => true,
-        //                 ProcessCondition.remake or ProcessCondition.reject => false,
-        //                 _ => action == ProcessAction.Submit
-        //             };
-        //             return new Dictionary<string, object> { [varName] = isPositive };
-        //         }
-        //
-        //         default:
-        //         {
-        //             // безопасный дефолт
-        //             var isPositive = (condition == ProcessCondition.accept);
-        //             return new Dictionary<string, object> { [varName] = isPositive };
-        //         }
-        //     }
-        // }
 
         private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
             ProcessStage stage,
@@ -498,7 +432,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             IUnitOfWork unitOfWork,
             CancellationToken ct)
         {
-            // мапперы
             static bool? FromCondition(ProcessCondition c) => c switch
             {
                 ProcessCondition.accept => true,
@@ -514,13 +447,12 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 _ => (bool?)null
             };
 
-            // 1) Execution — в BPMN нет переменной, узел всегда «true»: НИЧЕГО не отправляем.
+            // В Execution в BPMN нет условия — переменные не шлём вовсе.
             if (stage == ProcessStage.Execution)
-                return new Dictionary<string, object>(); // пусто => Camunda пойдёт дальше без условия
+                return new Dictionary<string, object>();
 
             var varName = GetCamundaVarNameForStage(stage);
 
-            // 2) Стадии, где приоритет — Condition (с фоллбеком на Action)
             bool conditionDriven = stage is
                 ProcessStage.Approval
                 or ProcessStage.Signing
@@ -533,10 +465,9 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             if (conditionDriven)
             {
                 var byCond = FromCondition(condition);
-                var byAct = FromAction(action);
-                isPositive = byCond ?? byAct ?? false; // если ничего не пришло — false по-умолчанию
+                var byAct  = FromAction(action);
+                isPositive = byCond ?? byAct ?? false;
 
-                // особый случай «вето» только для Approval
                 if (stage == ProcessStage.Approval && isPositive)
                 {
                     isPositive = await IsStagePositiveConsideringHistoryAsync(
@@ -545,39 +476,10 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             }
             else
             {
-                // 3) Остальные стадии — только по Action
                 isPositive = FromAction(action) ?? false;
             }
 
             return new Dictionary<string, object> { [varName] = isPositive };
-        }
-
-        /// <summary>
-        /// true, если processData.approvalTypeCode == "Sequentially"
-        /// </summary>
-        private static bool ReadIsSequentialFromProcessData(Dictionary<string, object>? payload)
-        {
-            if (payload == null) return false;
-            try
-            {
-                if (!payload.TryGetValue("processData", out var pdRaw) || pdRaw is null) return false;
-
-                var json = JsonSerializer.Serialize(pdRaw);
-                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
-
-                if (pd != null && pd.TryGetValue("approvalTypeCode", out var typeRaw) && typeRaw is not null)
-                {
-                    var tJson = JsonSerializer.Serialize(typeRaw);
-                    var type = JsonSerializer.Deserialize<string>(tJson);
-                    return string.Equals(type, "Sequentially", StringComparison.OrdinalIgnoreCase);
-                }
-            }
-            catch
-            {
-                /* считаем Parallel */
-            }
-
-            return false;
         }
 
         private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
@@ -601,329 +503,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                          || h.Condition == nameof(ProcessCondition.reject)));
 
             return negativeCount == 0;
-        }
-
-        private static string MergePayloadPreserve(string baseJson, string patchJson)
-        {
-            var opts = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-
-            var baseObj = ParseOrEmpty(baseJson);
-            var patchObj = ParseOrEmpty(patchJson);
-
-            DeepMerge(baseObj, patchObj);
-            return JsonSerializer.Serialize(baseObj, opts);
-
-            static JsonObject ParseOrEmpty(string? json)
-            {
-                if (string.IsNullOrWhiteSpace(json)) return new JsonObject();
-                try
-                {
-                    return (JsonNode.Parse(json) as JsonObject) ?? new JsonObject();
-                }
-                catch
-                {
-                    return new JsonObject();
-                }
-            }
-
-            static void DeepMerge(JsonObject target, JsonObject patch)
-            {
-                foreach (var kv in patch)
-                {
-                    if (kv.Value is null)
-                    {
-                        // null в patch — перезаписываем как null (или можно пропускать, если так задумано)
-                        target[kv.Key] = null;
-                        continue;
-                    }
-
-                    if (kv.Value is JsonObject patchObj)
-                    {
-                        if (target[kv.Key] is JsonObject targetObj)
-                        {
-                            DeepMerge(targetObj, patchObj);
-                        }
-                        else
-                        {
-                            target[kv.Key] = patchObj.DeepClone();
-                        }
-                    }
-                    else
-                    {
-                        // массивы и примитивы — заменяем целиком
-                        target[kv.Key] = kv.Value.DeepClone();
-                    }
-                }
-            }
-        }
-
-        private static bool JsonHasRegnum(string json)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-
-                if (root.ValueKind != JsonValueKind.Object) return false;
-
-                if (root.TryGetProperty("regData", out var rd) ||
-                    TryGetPropertyCaseInsensitive(root, "regData", out rd))
-                {
-                    if (rd.ValueKind == JsonValueKind.Object &&
-                        (rd.TryGetProperty("regnum", out var rn) ||
-                         TryGetPropertyCaseInsensitive(rd, "regnum", out rn)))
-                    {
-                        return rn.ValueKind == JsonValueKind.String &&
-                               !string.IsNullOrWhiteSpace(rn.GetString());
-                    }
-                }
-            }
-            catch
-            {
-                /* некорректный JSON — считаем, что regnum нет */
-            }
-
-            return false;
-        }
-
-        private static bool TryGetPropertyCaseInsensitive(JsonElement element, string name, out JsonElement value)
-        {
-            if (element.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var p in element.EnumerateObject())
-                {
-                    if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        value = p.Value;
-                        return true;
-                    }
-                }
-            }
-
-            value = default;
-            return false;
-        }
-
-
-        private static async Task ReconcileFilesAsync(
-            Guid processDataId,
-            string payloadJson,
-            IUnitOfWork unitOfWork,
-            CancellationToken ct)
-        {
-            // 1) Собираем итоговый список из payload
-            JsonArray? filesArr = null;
-            try
-            {
-                var root = JsonNode.Parse(payloadJson)!.AsObject();
-                filesArr = root["files"] as JsonArray;
-            }
-            catch
-            {
-                /* нет секции files — выходим */
-            }
-
-            var incoming = new Dictionary<Guid, (string fileName, string fileType)>();
-            if (filesArr is not null)
-            {
-                foreach (var node in filesArr.OfType<JsonObject>())
-                {
-                    var fileIdStr = node["fileId"]?.GetValue<string>();
-                    var fileName = node["fileName"]?.GetValue<string>();
-                    var fileType = node["fileType"]?.GetValue<string>();
-
-                    if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
-                        throw new HandlerException(
-                            "Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
-                            ErrorCodesEnum.Business);
-                    if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
-                        throw new HandlerException(
-                            "Каждый объект в \"files\" должен иметь непустые fileName и fileType",
-                            ErrorCodesEnum.Business);
-
-                    incoming[fileId] = (fileName!, fileType!);
-                }
-            }
-
-            // 2) Берём все файлы из БД (и 0 и 1)
-            var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
-                ct, f => f.ProcessDataId == processDataId);
-
-            var byFileId = existing
-                .Where(e => e.FileId != Guid.Empty)
-                .ToDictionary(e => e.FileId, e => e);
-
-            var incomingIds = incoming.Keys.ToHashSet();
-
-            // 3) ADD/UNDELETE/RENAME
-            foreach (var kv in incoming)
-            {
-                var fileId = kv.Key;
-                var (fileName, fileType) = kv.Value;
-
-                if (!byFileId.TryGetValue(fileId, out var ex))
-                {
-                    // совсем новый
-                    await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
-                    {
-                        EntityId = Guid.NewGuid(),
-                        ProcessDataId = processDataId,
-                        FileId = fileId,
-                        FileName = fileName,
-                        FileType = fileType
-                    }, ct);
-                }
-                else
-                {
-                    // был, но мог быть удалён или изменились имя/тип
-                    if (ex.State != ProcessFileState.Active || ex.FileName != fileName || ex.FileType != fileType)
-                    {
-                        await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
-                        {
-                            EntityId = ex.Id,
-                            State = ProcessFileState.Active,
-                            FileName = fileName,
-                            FileType = fileType
-                        }, ct);
-                    }
-                }
-            }
-
-            // 4) SOFT DELETE: всё, чего нет в payload → State = Removed (1)
-            foreach (var ex in byFileId.Values)
-            {
-                if (!incomingIds.Contains(ex.FileId) && ex.State != ProcessFileState.Removed)
-                {
-                    // Можно использовать старый ProcessFileDeletedEvent, он теперь ставит State=Removed
-                    // await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileDeletedEvent { EntityId = ex.Id }, ct);
-
-                    // Предпочтительно: единое событие статуса
-                    await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
-                    {
-                        EntityId = ex.Id,
-                        State = ProcessFileState.Removed
-                    }, ct);
-                }
-            }
-        }
-        
-        private static string BuildTitle(string oldTitle, string mergedJson)
-        {
-            try
-            {
-                var root = JsonNode.Parse(mergedJson)?.AsObject();
-                var explicitTitle = root?["title"]?.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(explicitTitle))
-                    return explicitTitle!;
-
-                var regnum = root?["regData"]?["regnum"]?.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(regnum))
-                {
-                    // если regnum уже есть в старом заголовке — не дублируем
-                    if (!string.IsNullOrWhiteSpace(oldTitle) &&
-                        oldTitle.Contains(regnum, StringComparison.OrdinalIgnoreCase))
-                        return oldTitle;
-
-                    return string.IsNullOrWhiteSpace(oldTitle)
-                        ? $"Заявка № {regnum}"
-                        : $"{oldTitle} (№ {regnum})";
-                }
-            }
-            catch { /* no-op */ }
-
-            return oldTitle;
-        }
-
-
-        /*
-         public async Task<BaseResponseDto<SendProcessResponse>> Handle(SendProcessCommand command, CancellationToken cancellationToken)
-        {
-            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(cancellationToken,
-                p => p.Id == command.TaskId &&
-        p.Status == "Pending")
-                ?? throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
-
-        var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(cancellationToken, currentTask.ProcessDataId)
-            ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
-
-        var recipients = ExtractFromPayload<List<UserInfo>>(command.PayloadJson, "recipients") ?? new();
-        var comment = ExtractFromPayload<string>(command.PayloadJson, "comment");
-
-
-            // ===== Делегирование =====
-            if (command.Action == ProcessAction.Delegate && recipients.Any())
-            {
-                await processTaskService.HandleDelegationAsync(currentTask, processData, command, recipients, comment, cancellationToken);
-                //await processTaskService.LogHistoryAsync(currentTask, command, "", cancellationToken);
-                return processTaskService.SuccessResponse(currentTask.BlockCode, currentTask.BlockName);
-            }
-
-            // ===== Переход к следующему блоку =====
-            var currentBlock = await processTaskService.FindNextBlockAsync(
-                processData.ProcessId,
-                currentTask.BlockId,
-     rte           command.Action.ToString(),
-        command.Condition?.ToString(),
-        cancellationToken
-            ) ?? throw new HandlerException("Следующий блок не найден", ErrorCodesEnum.Business);
-
-        var nextBlock = await unitOfWork.BlockRepository.GetByFilterAsync(cancellationToken,
-            b => b.ProcessId == processData.ProcessId && b.Id == currentBlock.NextBlockId)
-            ?? throw new HandlerException("Подробности следующего блока не найдены", ErrorCodesEnum.Business);
-
-
-        // Завершение текущей подзадачи и проверка родителя
-        await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, cancellationToken);
-        await processTaskService.FinalizeTaskAsync(currentTask, cancellationToken);
-            //await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, cancellationToken);
-
-            recipients = await processTaskService.ResolveRecipientsAsync(processData.ProcessCode, nextBlock.BlockCode, recipients, cancellationToken);
-
-    var blockResult = await processTaskService.TryHandleParentTaskAsync(currentTask, currentBlock, nextBlock, processData, command, comment, recipients, cancellationToken);
-
-            if (blockResult?.Handled == true)
-            {
-                if (blockResult.BlockCode == "Completion")
-                {
-                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataStatusChangedEvent
-                    {
-                        EntityId = processData.Id,
-                        StatusCode = "Completed",
-                        StatusName = "Завершено"
-                    }, cancellationToken);
-                }
-                await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
-                {
-                    EntityId = processData.Id,
-                    BlockCode = blockResult.BlockCode,
-                    BlockName = blockResult.BlockName
-                }, cancellationToken);
-return processTaskService.SuccessResponse(blockResult.BlockCode, blockResult.BlockName);
-            }
-
-            var parentCreatedEvent = await processTaskService.CreateParentIfNeededAsync(recipients, nextBlock, processData, command, comment, cancellationToken);
-await processTaskService.CreateTasksAsync(nextBlock.Id, nextBlock.BlockCode, nextBlock.BlockName, recipients, processData, command, parentCreatedEvent?.EntityId, cancellationToken);
-
-await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataBlockChangedEvent
-{
-    EntityId = processData.Id,
-    BlockCode = nextBlock.BlockCode,
-    BlockName = nextBlock.BlockName
-}, cancellationToken);
-
-return processTaskService.SuccessResponse(nextBlock.BlockCode, nextBlock.BlockName);
-        }
-         */
-        public static T? ExtractFromPayload<T>(Dictionary<string, object>? payload, string key)
-        {
-            if (payload == null || !payload.TryGetValue(key, out var value))
-                return default;
-
-            var json = JsonSerializer.Serialize(value);
-            return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
         }
     }
 }
