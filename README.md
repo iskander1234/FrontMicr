@@ -1,6 +1,14 @@
-SELECT "Id", "ProcessCode", "ProcessName", "StartBlockId", "Created", "Updated", "CreateUserId", "LastUserId"
-	FROM public."Process";
+-- разово: CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-
-	Техническая поддержка
-ServiceRequest 
+INSERT INTO public."Process"
+("Id","ProcessCode","ProcessName","StartBlockId","Created","Updated","CreateUserId","LastUserId")
+VALUES (
+  gen_random_uuid(),
+  'ServiceRequest',
+  'Техническая поддержка',
+  NULL,
+  NOW(),
+  NOW(),
+  'System',
+  'System'
+);
