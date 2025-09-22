@@ -1,9 +1,9 @@
--- разово: CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- разово: CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 INSERT INTO public."Process"
 ("Id","ProcessCode","ProcessName","StartBlockId","Created","Updated","CreateUserId","LastUserId")
 VALUES (
-  gen_random_uuid(),
+  uuid_generate_v4(),
   'ServiceRequest',
   'Техническая поддержка',
   NULL,
