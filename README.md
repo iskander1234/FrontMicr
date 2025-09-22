@@ -23,6 +23,12 @@ public async Task<bool> CamundaSetProcessVariables(
 }
 
 
+    [Post("/core-service/process-instance/{processInstanceId}/variables")]
+    Task SetProcessVariablesAsync(
+        string processInstanceId,
+        [Body] Dictionary<string, object> variables,
+        CancellationToken cancellationToken = default);
+
 
 
 
