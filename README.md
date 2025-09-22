@@ -1,103 +1,55 @@
-using System.Threading.Tasks;
-using AutoMapper;
-using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Services.Camunda.CamundaProvider.Models;
-using BpmBaseApi.Services.Camunda.ServiceCamunda;
-using BpmBaseApi.Services.Camunda.ServiceCamunda.Models;
-using BpmBaseApi.Services.Interfaces;
-using BpmBaseApi.Shared.Enum;
-using BpmBaseApi.Shared.Models.Camunda;
-
-namespace BpmBaseApi.Services.Camunda
+public async Task<bool> CamundaSetProcessVariables(
+    string processInstanceId,
+    Dictionary<string, object> variables)
 {
-    public class CamundaService
-        (
-        IMapper mapper,
-        ICamundaProvider camundaProvider
-        ) : ICamundaService
+    try
     {
-        public async Task<CamundaClaimedTasksResponse> CamundaClaimedTasks(string processGuid, string stage, CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var result = await camundaProvider.ClaimedTasksAsync(processGuid, stage, cancellationToken);
+        // защитимся от null/вложенных структур
+        var cleaned = variables
+            .Where(kv => kv.Value is not null && kv.Value is not IDictionary<string, object>)
+            .ToDictionary(kv => kv.Key, kv => kv.Value!);
 
-                if (result.Count == 0)
-                {
-                    throw new HandlerException($"Не найдена задача в Camunda: {processGuid} {stage};");
-                }
+        if (cleaned.Count == 0)
+            return true; // класть нечего — считаем успехом
 
-                var task = result.FirstOrDefault();
-                
-                return new CamundaClaimedTasksResponse()
-                {
-                    TaskId = task.id,
-                    Name = task.name,
-                };
-            }
-            catch (HandlerException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
-            }
-        }
-
-        public async Task<string> CamundaStartProcess(CamundaStartProcessRequest request, CancellationToken cancellationToken)
-        {
-            var requestProvider = mapper.Map<StartProcessProviderRequest>(request);
-            try
-            {
-                var result = await camundaProvider.StartProcessAsync(request.processCode, requestProvider, cancellationToken);
-                return result;
-            }
-            catch (HandlerException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
-            }
-        }
-
-        public async Task<CamundaSubmitTaskResponse> CamundaSubmitTask(CamundaSubmitTaskRequest request, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var result = await camundaProvider.SubmitTaskAsync(request.TaskId, request.Variables, cancellationToken);
-
-                return mapper.Map<CamundaSubmitTaskResponse>(result);
-            }
-            catch (HandlerException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
-            }
-        }
-
-
-
-        using BpmBaseApi.Shared.Enum;
-using BpmBaseApi.Shared.Models.Camunda;
-
-namespace BpmBaseApi.Services.Interfaces
-{
-    public interface ICamundaService
+        await camundaProvider.SetProcessVariablesAsync(processInstanceId, cleaned);
+        return true;
+    }
+    catch (HandlerException) { throw; }
+    catch (Exception ex)
     {
-        Task<string> CamundaStartProcess(CamundaStartProcessRequest request, CancellationToken cancellationToken = default);
-
-        Task<CamundaClaimedTasksResponse> CamundaClaimedTasks(string processGuid, string stage, CancellationToken cancellationToken = default);
-
-        Task<CamundaSubmitTaskResponse> CamundaSubmitTask(CamundaSubmitTaskRequest request, CancellationToken cancellationToken = default);
-        Task<bool> CamundaSetProcessVariables(string processInstanceId, Dictionary<string, object> variables);
+        throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
     }
 }
 
-    }
+
+
+
+
+// Собираем classification (Emergency|Standard|Normal)
+var variables = BuildClassificationVariables(command.PayloadJson); // вернёт {} если не нашли
+
+if (variables.Count > 0)
+{
+    // ключевой шаг: положить в process-scope, чтобы шлюз увидел ${classification}
+    await camundaService.CamundaSetProcessVariables(processData.ProcessInstanceId, variables);
+}
+
+if (string.Equals(parentTask.AssigneeCode, "system", StringComparison.OrdinalIgnoreCase))
+{
+    var claimed = await camundaService.CamundaClaimedTasks(
+        processData.ProcessInstanceId, parentTask.BlockCode)
+        ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
+
+    // дальше submit уже можно слать без переменных
+    var submit = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
+    {
+        TaskId = claimed.TaskId,
+        Variables = new Dictionary<string, object>() // пусто OK
+    });
+
+    if (!submit.Success)
+        throw new HandlerException($"Ошибка при отправке Msg:{submit.Msg}", ErrorCodesEnum.Camunda);
+
+    await processTaskService.FinalizeTaskAsync(parentTask, ct);
 }
