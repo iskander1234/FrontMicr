@@ -41,3 +41,22 @@ else
     await processTaskService.FinalizeTaskAsync(currentTask, ct);
     await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
 }
+
+
+
+
+
+
+
+
+
+
+
+var others = await unitOfWork.ProcessTaskRepository
+    .GetByFilterListAsync(ct, t => t.ParentTaskId == parentTask.Id && t.Id != currentTask.Id);
+
+foreach (var ch in others)
+    await processTaskService.FinalizeTaskAsync(ch, ct);
+
+// затем удаляйте parentTask
+await processTaskService.FinalizeTaskAsync(parentTask, ct);
