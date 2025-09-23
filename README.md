@@ -2,7 +2,124 @@ ProcessStage есть и у него есть  Level1,
         Level2,
         Level3, теперь мне надо сделать в Level1 вариабле Line 1 false или true делать  
 и как должен быть json тоже покажешь 
+есть еще Line 2 и Line 3
 
+executed это true false это 'toSecondLine'  определяться в json 
+
+пример запроса такой {
+    "taskId": "7b7cd415-7e0c-407f-8beb-4d16ece7fbb6",
+    "action": "Submit",
+    "condition": "accept",
+    "senderUserCode": "r.mukhamatzhanov",
+    "senderUserName": "Мухаматжанов Рамазан Рустамжанович",
+    "comment": "comment",
+    "payloadJson": {
+        "processCode": "ServiceRequest",
+        "initiatorCode": "r.mukhamatzhanov",
+        "initiatorName": "Мухаматжанов Рамазан Рустамжанович",
+        "payload": {
+            "regData": {
+                "userCode": "r.mukhamatzhanov",
+                "userName": "Мухаматжанов Рамазан Рустамжанович",
+                "departmentId": "00ЗП-0013",
+                "departmentName": "Управление автоматизации бизнес-процессов",
+                "startdate": "2025-09-23T09:41:00.289Z",
+                "regnum": ""
+            },
+            "sysInfo": {
+                "userCode": "r.mukhamatzhanov",
+                "userName": "Мухаматжанов Рамазан Рустамжанович",
+                "comment": "comment",
+                "action": "submit",
+                "condition": "string"
+            },
+            "initiator": {
+                "id": 1609,
+                "name": "Мухаматжанов Рамазан Рустамжанович",
+                "shortName": "Мухаматжанов Р.Р.",
+                "position": "Главный специалист",
+                "login": "r.mukhamatzhanov",
+                "statusCode": 6,
+                "statusDescription": "Работа",
+                "depId": "00ЗП-0013",
+                "depName": "Управление автоматизации бизнес-процессов",
+                "parentDepId": "00ЗП-0010",
+                "parentDepName": "Департамент цифровой трансформации",
+                "isFilial": false,
+                "mail": "r.mukhamatzhanov@enpf.kz",
+                "localPhone": "0",
+                "mobilePhone": "+7(777) 493-73-31",
+                "isManager": false,
+                "managerTabNumber": "4340",
+                "disabled": false,
+                "tabNumber": "00ЗП-00360",
+                "loginAD": "r.mukhamatzhanov"
+            },
+            "processData": {
+                "id": "",
+                "documentTitle": "Компьютерное оборудование",
+                "documentBody": "",
+                "savedData": [
+                    {
+                        "subjectId": "af152f4b-7bfc-4f49-92d5-7c5df0ea68ef",
+                        "subjectLabel": "Компьютерное оборудование",
+                        "subjectLevel": 1,
+                        "contents": []
+                    },
+                    {
+                        "subjectId": "1fb8043d-a47f-4ace-adf1-1299341c213b",
+                        "subjectLabel": "Картридеры",
+                        "contents": [],
+                        "subjectLevel": 2
+                    },
+                    {
+                        "subjectId": "bd372353-bb2d-4b0d-b1e6-d7f407b916fe",
+                        "subjectLabel": "Отсутствует связь с ПК",
+                        "contents": [
+                            {
+                                "question": "В чём проявляется проблема",
+                                "type": "textarea",
+                                "id": "bd83ff17-83c0-4875-8992-1b2c21f0b005",
+                                "subjectId": "bd372353-bb2d-4b0d-b1e6-d7f407b916fe",
+                                "values": []
+                            }
+                        ],
+                        "subjectLevel": 3
+                    }
+                ],
+                "tempContents": [
+                    {
+                        "question": "В чём проявляется проблема",
+                        "type": "textarea",
+                        "id": "bd83ff17-83c0-4875-8992-1b2c21f0b005",
+                        "subjectId": "bd372353-bb2d-4b0d-b1e6-d7f407b916fe",
+                        "values": []
+                    }
+                ],
+                "selectedOptions": [
+                    "qweqweqwe"
+                ],
+                "level1": {
+                    "formData": {
+                        "feature": "problem",
+                        "comment": "comment",
+                        "criticality": "green",
+                        "execution": "toSecondLine",
+                        "priority": "first"
+                    },
+                    "usr": {
+                        "userCode": "r.mukhamatzhanov",
+                        "userName": "Мухаматжанов Рамазан Рустамжанович",
+                        "departmentId": "00ЗП-0013",
+                        "departmentName": "Управление автоматизации бизнес-процессов",
+                        "date": "2025-09-23T09:41:00.289Z"
+                    }
+                }
+            },
+            "files": []
+        }
+    }
+}А
    надо сюда добавить       using System.Text.Json;
 using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
