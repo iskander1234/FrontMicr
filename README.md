@@ -6,6 +6,11 @@ ProcessStage есть и у него есть  Level1,
 
 executed это true false это 'toSecondLine'  определяться в json 
 
+execution: [
+      { label: 'Заявка исполнена', value: 'executed' },
+      { label: 'Передача на 2-ю линию', value: 'toSecondLine' },
+    ],
+
 пример запроса такой {
     "taskId": "7b7cd415-7e0c-407f-8beb-4d16ece7fbb6",
     "action": "Submit",
