@@ -1,4 +1,4 @@
-using System.Text.Encodings.Web;
+Откуда в BlockCode записывается ClassifyChange должно же быть ChangeRequestusing System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using BpmBaseApi.Domain.Entities.Event.Process;
