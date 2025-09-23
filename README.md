@@ -1,94 +1,179 @@
-
-BuildClassificationVariables(...)
-
-
-camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest {
-    TaskId = claimed.TaskId,
-    Variables = stageVars   // здесь внутри уже есть classification = "Normal"
-});
-
-
-using System.Threading.Tasks;
-using AutoMapper;
+using System.Text.Json;
+using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
-using BpmBaseApi.Services.Camunda.CamundaProvider.Models;
-using BpmBaseApi.Services.Camunda.ServiceCamunda;
-using BpmBaseApi.Services.Camunda.ServiceCamunda.Models;
+using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Services.Interfaces;
-using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Commands.Process;
+using BpmBaseApi.Shared.Dtos;
 using BpmBaseApi.Shared.Models.Camunda;
+using BpmBaseApi.Shared.Responses.Process;
+using MediatR;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Shared.Enum;
 
-namespace BpmBaseApi.Services.Camunda
+namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class CamundaService
-        (
-        IMapper mapper,
-        ICamundaProvider camundaProvider
-        ) : ICamundaService
+    /// <summary>
+    /// ITSM Send:
+    /// - читает classification из payloadJson (processData.analyst.classificationCode | classification | level | priority)
+    /// - при системном parent: шлёт ВМЕСТЕ со stage-булевыми переменными (как старый Send) => gateway видит ${classification == 'Normal'}
+    /// - иначе поднимаем родителя в Pending
+    /// </summary>
+    public class SendProcessITSMCommandHandler(
+        IUnitOfWork unitOfWork,
+        ICamundaService camundaService,
+        IProcessTaskService processTaskService)
+        : IRequestHandler<SendProcessCommand, BaseResponseDto<SendProcessResponse>>
     {
-        public async Task<CamundaClaimedTasksResponse> CamundaClaimedTasks(string processGuid, string stage, CancellationToken cancellationToken = default)
+        public async Task<BaseResponseDto<SendProcessResponse>> Handle(
+            SendProcessCommand command, CancellationToken ct)
         {
-            try
+            // Текущая подзадача должна быть Pending
+            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
+                                  ct, t => t.Id == command.TaskId && t.Status == "Pending")
+                              ?? throw new HandlerException("Задача не найдена или уже обработана",
+                                  ErrorCodesEnum.Business);
+
+            var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(ct, currentTask.ProcessDataId)
+                              ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
+
+            var parentTask = await unitOfWork.ProcessTaskRepository.GetByIdAsync(ct, currentTask.ParentTaskId!.Value);
+
+            if (string.Equals(parentTask.AssigneeCode, "system", StringComparison.OrdinalIgnoreCase))
             {
-                var result = await camundaProvider.ClaimedTasksAsync(processGuid, stage, cancellationToken);
+                var claimed = await camundaService.CamundaClaimedTasks(
+                                  processData.ProcessInstanceId, parentTask.BlockCode)
+                              ?? throw new HandlerException("Задача не найдена в Camunda", ErrorCodesEnum.Camunda);
 
-                if (result.Count == 0)
-                {
-                    throw new HandlerException($"Не найдена задача в Camunda: {processGuid} {stage};");
-                }
-
-                var task = result.FirstOrDefault();
+                // 2) строковая classification
+                var classVars = BuildClassificationVariables(command.PayloadJson);
                 
-                return new CamundaClaimedTasksResponse()
+                // 1) булевые для этапа (как в старом Send)
+                var stage = Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var st) ? st : ProcessStage.Approval;
+                var stageVars = await BuildCamundaVariablesAsync(
+                    stage, classVars, ct);
+
+               
+
+                // 3) объединяем
+                //foreach (var kv in classVars) stageVars[kv.Key] = kv.Value;
+
+                var submit = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
                 {
-                    TaskId = task.id,
-                    Name = task.name,
-                };
+                    TaskId = claimed.TaskId,
+                    Variables = stageVars
+                });
+
+                if (!submit.Success)
+                    throw new HandlerException($"Ошибка при отправке Msg:{submit.Msg}", ErrorCodesEnum.Camunda);
+
+                await processTaskService.FinalizeTaskAsync(parentTask, ct);
             }
-            catch (HandlerException)
+            else
             {
-                throw;
+                // Родитель не system — делаем его Pending
+                await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
+                {
+                    EntityId = parentTask.Id,
+                    Status = "Pending"
+                }, ct);
+
+                if (!string.IsNullOrWhiteSpace(parentTask.AssigneeCode))
+                    await processTaskService.RefreshUserTaskCacheAsync(parentTask.AssigneeCode, ct);
             }
-            catch (Exception ex)
+
+            // Лог + закрытие текущей подзадачи
+            await processTaskService.LogHistoryAsync(currentTask, command, currentTask.AssigneeCode, ct);
+            await processTaskService.FinalizeTaskAsync(currentTask, ct);
+            await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
+
+            return new BaseResponseDto<SendProcessResponse>
             {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
-            }
+                Data = new SendProcessResponse { Success = true }
+            };
         }
 
-        public async Task<string> CamundaStartProcess(CamundaStartProcessRequest request, CancellationToken cancellationToken)
+        /// <summary>
+        /// Ищем classification в payload (вложенность поддерживается).
+        /// Возвращаем {"classification": "Emergency|Standard|Normal"} либо пустой словарь.
+        /// </summary>
+        private static string BuildClassificationVariables(Dictionary<string, object>? payload)
         {
-            var requestProvider = mapper.Map<StartProcessProviderRequest>(request);
-            try
+            if (payload is null) return "";
+
+            static string? ReadStr(Dictionary<string, object> p, string key)
             {
-                var result = await camundaProvider.StartProcessAsync(request.processCode, requestProvider, cancellationToken);
-                return result;
+                if (!p.TryGetValue(key, out var v) || v is null) return null;
+                var json = JsonSerializer.Serialize(v);
+                return JsonSerializer.Deserialize<string>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             }
-            catch (HandlerException)
+
+            // Ищем processData.analyst.classificationCode
+            string? fromAnalyst = null;
+            if (payload.TryGetValue("processData", out var pdRaw) && pdRaw is not null)
             {
-                throw;
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                    JsonSerializer.Serialize(pdRaw), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (pd != null && pd.TryGetValue("analyst", out var aRaw) && aRaw is not null)
+                {
+                    var analyst = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                        JsonSerializer.Serialize(aRaw),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (analyst != null) fromAnalyst = ReadStr(analyst, "classificationCode");
+                }
             }
-            catch (Exception ex)
+
+            var classificationValue = fromAnalyst
+                        ?? ReadStr(payload, "classification");
+
+            if (string.IsNullOrWhiteSpace(classificationValue)) return classificationValue;
+            else
             {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
+                return "";
             }
+
         }
 
-        public async Task<CamundaSubmitTaskResponse> CamundaSubmitTask(CamundaSubmitTaskRequest request, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var result = await camundaProvider.SubmitTaskAsync(request.TaskId, request.Variables, cancellationToken);
+        // ==== Вспомогалки для этапных булевых, как в старом Send ====
 
-                return mapper.Map<CamundaSubmitTaskResponse>(result);
-            }
-            catch (HandlerException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new HandlerException($"Некорректный ответ от Camunda: {ex.Message} {ex.InnerException?.Message};");
-            }
+        private static string GetCamundaVarNameForStage(ProcessStage stage) => stage switch
+        {
+            ProcessStage.ClassifyChange => "classification ",
+            _                           => "classification"
+        };
+
+        private static async Task<Dictionary<string, object>> BuildCamundaVariablesAsync(
+            ProcessStage stage,
+            string stageValue,
+            CancellationToken ct)
+        {
+            var varName = GetCamundaVarNameForStage(stage);
+            return new Dictionary<string, object> { [varName] = stageValue};
+        }
+
+        private static async Task<bool> IsStagePositiveConsideringHistoryAsync(
+            ProcessStage stage,
+            bool currentIsPositive,
+            Guid processDataId,
+            Guid? parentTaskId,
+            IUnitOfWork unitOfWork,
+            CancellationToken ct)
+        {
+            if (!currentIsPositive) return false;
+
+            var stageCode = stage.ToString();
+
+            var negativeCount = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
+                ct,
+                h => h.ProcessDataId == processDataId
+                     && h.BlockCode == stageCode
+                     && h.ParentTaskId == parentTaskId
+                     && (h.Condition == nameof(ProcessCondition.remake)
+                         || h.Condition == nameof(ProcessCondition.reject)));
+
+            return negativeCount == 0;
         }
     }
 }
