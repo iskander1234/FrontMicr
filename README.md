@@ -1,7 +1,3 @@
-Эта логика моя рабочая надо его дополнить 2 схему у него есть ProcessStage Level1,
-        Level2,
-        Level3, 
-        и у Level1 есть Line 1 и она может быть True или False 
 using System.Text.Json;
 using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
@@ -21,6 +17,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
     /// ITSM Send:
     /// - читает classification из payloadJson (processData.analyst.classificationCode | classification | itsmLevel | level | priority)
     /// - при системном parent: отправляет в Camunda submit с переменной classification
+    /// - для Level1 дополнительно шлёт булевую переменную "Line 1" по execution (executed/toSecondLine)
     /// - иначе поднимает родителя в Pending
     /// </summary>
     public class SendProcessITSMCommandHandler(
@@ -32,7 +29,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         public async Task<BaseResponseDto<SendProcessResponse>> Handle(
             SendItsmProcessCommand command, CancellationToken ct)
         {
-            // 1) Текущая подзадача должна быть Pending
+            // 1) текущая подзадача должна быть Pending
             var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
                                   ct, t => t.Id == command.TaskId && t.Status == "Pending")
                               ?? throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
@@ -42,7 +39,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
 
             var parentTask = await unitOfWork.ProcessTaskRepository.GetByIdAsync(ct, currentTask.ParentTaskId!.Value);
 
-            // 2) Читаем и нормализуем classification
+            // 2) читаем и нормализуем classification (оставляем старую логику)
             var classification = ReadClassification(command.PayloadJson);
             if (string.IsNullOrWhiteSpace(classification))
                 throw new HandlerException("Не удалось определить classification (ожидается Emergency|Standard|Normal).", ErrorCodesEnum.Business);
@@ -58,6 +55,23 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                     ["classification"] = classification
                 };
 
+                // ---- ДОБАВКА: ветка второй схемы для Level1 ----
+                if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var stage) && stage == ProcessStage.Level1)
+                {
+                    // читаем processData.level1.formData.execution ("executed"|"toSecondLine")
+                    var execution = ReadLevel1Execution(command.PayloadJson);
+                    bool line1 = execution switch
+                    {
+                        "executed"     => true,
+                        "toSecondLine" => false,
+                        _              => true // дефолт (при желании поменяй на false)
+                    };
+
+                    // имя переменной должно совпадать с BPMN (у тебя на схеме "Line 1")
+                    variables["Line 1"] = line1;
+                }
+                // ---- КОНЕЦ ДОБАВКИ ----
+
                 var submit = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
                 {
                     TaskId    = claimed.TaskId,
@@ -67,12 +81,12 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 if (!submit.Success)
                     throw new HandlerException($"Ошибка при отправке Msg:{submit.Msg}", ErrorCodesEnum.Camunda);
 
-                // <-- ВАЖНО: сначала лог и финализация текущей (дочерней) задачи
+                // сначала лог/закрыть текущую
                 await processTaskService.LogHistoryItsmAsync(currentTask, command, currentTask.AssigneeCode, ct);
                 await processTaskService.FinalizeTaskAsync(currentTask, ct);
                 await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
 
-                // <-- Затем финализируем родителя (system)
+                // затем закрыть родителя (system)
                 await processTaskService.FinalizeTaskAsync(parentTask, ct);
             }
             else
@@ -91,7 +105,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
             }
 
-            // 5) Лог + закрытие текущей подзадачи
+            // защита от двойного лога: если выше уже логировали — второй вызов можешь удалить
             await processTaskService.LogHistoryItsmAsync(currentTask, command, currentTask.AssigneeCode, ct);
             await processTaskService.FinalizeTaskAsync(currentTask, ct);
             await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
@@ -103,8 +117,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         }
 
         /// <summary>
-        /// Возвращает каноническое значение "Emergency" | "Standard" | "Normal"
-        /// из payload: processData.analyst.classificationCode | classification | itsmLevel | level | priority.
+        /// Старое правило: вернуть "Emergency"|"Standard"|"Normal"
         /// </summary>
         private static string? ReadClassification(Dictionary<string, object>? payload)
         {
@@ -149,6 +162,36 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 "normal"    => "Normal",
                 _           => null
             };
+        }
+
+        /// <summary>
+        /// Для второй схемы (Level1): processData.level1.formData.execution
+        /// </summary>
+        private static string? ReadLevel1Execution(Dictionary<string, object>? payload)
+        {
+            try
+            {
+                if (payload is null) return null;
+
+                if (!payload.TryGetValue("payload", out var pRaw) || pRaw is null) return null;
+                var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
+
+                if (p is null || !p.TryGetValue("processData", out var pdRaw) || pdRaw is null) return null;
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pdRaw));
+
+                if (pd is null || !pd.TryGetValue("level1", out var lRaw) || lRaw is null) return null;
+                var level1 = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(lRaw));
+
+                if (level1 is null || !level1.TryGetValue("formData", out var fdRaw) || fdRaw is null) return null;
+                var form = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(fdRaw));
+
+                if (form is null || !form.TryGetValue("execution", out var exRaw) || exRaw is null) return null;
+                return JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(exRaw));
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
