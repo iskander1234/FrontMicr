@@ -1,4 +1,26 @@
-using System.Text.Json;
+на схеме ошибка они указали line2 ошибка есть  line1 Так же мне надо сделать теперь так и каждый line делать таким образом "processData": {
+        "level2": {
+          "formData": {
+            "execution": {code:"toSecondLine", name: "На 2-линию"}  
+          }
+        }
+      } 
+
+      и нужно добавить Line2 ExternalOrg false Executed true 
+      
+
+Есть проблема тут Task<Guid> RaiseEvent(BaseEntityEvent @event, CancellationToken cancellationToken, bool autoCommit = true);
+
+
+     // NOTE: замените на ваш реальный ивент/метод обновления payload
+                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataPayloadChangedEvent
+                    {
+                        EntityId   = processData.Id,
+                        PayloadJson = updatedPayload
+                    }, ct);
+
+
+    using System.Text.Json;
 using System.Text.Json.Nodes;
 using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
@@ -10,6 +32,7 @@ using BpmBaseApi.Shared.Models.Camunda;
 using BpmBaseApi.Shared.Responses.Process;
 using MediatR;
 using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Domain.SeedWork;
 using BpmBaseApi.Shared.Enum;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
@@ -88,7 +111,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                     };
 
                     // имя переменной должно совпадать с BPMN (на схеме "Line 1")
-                    variables["Line 1"] = line1;
+                    variables["Line1"] = line1;
                 }
                 // ---- КОНЕЦ ДОПОЛНЕНИЯ ----
 
@@ -255,29 +278,32 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         /// </summary>
         private static string? ReadLevel1Execution(Dictionary<string, object>? payload)
         {
-            try
-            {
-                if (payload is null) return null;
-
-                if (!payload.TryGetValue("payload", out var pRaw) || pRaw is null) return null;
-                var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
-
-                if (p is null || !p.TryGetValue("processData", out var pdRaw) || pdRaw is null) return null;
-                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pdRaw));
-
-                if (pd is null || !pd.TryGetValue("level1", out var lRaw) || lRaw is null) return null;
-                var level1 = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(lRaw));
-
-                if (level1 is null || !level1.TryGetValue("formData", out var fdRaw) || fdRaw is null) return null;
-                var form = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(fdRaw));
-
-                if (form is null || !form.TryGetValue("execution", out var exRaw) || exRaw is null) return null;
-                return JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(exRaw));
-            }
-            catch
-            {
-                return null;
-            }
+                 try
+                 {
+                     if (payload is null) return null;
+            
+                    if (!payload.TryGetValue("payload", out var pRaw) || pRaw is null) return null;
+                     var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
+            
+                     if (p is null || !p.TryGetValue("processData", out var pdRaw) || pdRaw is null) return null;
+                     var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pdRaw));
+            
+                     if (pd is null || !pd.TryGetValue("level1", out var lRaw) || lRaw is null) return null;
+                     var level1 = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(lRaw));
+            
+                     if (level1 is null || !level1.TryGetValue("formData", out var fdRaw) || fdRaw is null) return null;
+                     var form = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(fdRaw));
+            
+                     if (form is null || !form.TryGetValue("execution", out var exRaw) || exRaw is null) return null;
+                     var execution = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(exRaw));
+                     
+                     if (execution is null || !form.TryGetValue("code", out var codeRaw) || codeRaw is null) return null;
+                     return JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(codeRaw));
+                 }
+                 catch
+                 {
+                     return null;
+                 }
         }
     }
 
@@ -331,7 +357,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
     }
 
     // ==== заглушка события — замени названием/типом на реальный у тебя в проекте ====
-    public class ProcessDataPayloadChangedEvent : BaseEvent
+    public class ProcessDataPayloadChangedEvent : BaseEntity
     {
         public Guid EntityId { get; set; }
         public string PayloadJson { get; set; } = "";
