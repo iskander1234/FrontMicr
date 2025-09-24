@@ -15,6 +15,13 @@ using BpmBaseApi.Shared.Enum;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
+    /// <summary>
+    /// ITSM Send:
+    /// - читает classification (как раньше) и при изменении обновляет payload процесса
+    /// - Level1: отправляет булевую переменную Line1 (executed=true, toSecondLine=false)
+    /// - Level2: отправляет строковую переменную Line2: "Executed" | "ExternalOrg" | "Line3"
+    /// - остальное поведение без изменений
+    /// </summary>
     public class SendProcessITSMCommandHandler(
         IUnitOfWork unitOfWork,
         ICamundaService camundaService,
@@ -26,7 +33,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         {
             // 1) Текущая подзадача должна быть Pending
             var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
-                                  ct, t => t.Id == command.TaskId && t.Status == "Pending")
+                                  ct, t => t.Id == command.TaskId && t.Status == "Pending"))
                               ?? throw new HandlerException("Задача не найдена или уже обработана", ErrorCodesEnum.Business);
 
             var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(ct, currentTask.ProcessDataId)
@@ -43,7 +50,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 {
                     var updatedPayload = UpsertClassificationIntoJson(processData.PayloadJson, incomingClassification!);
 
-                    // ВАЖНО: событие должно наследоваться от BaseEntityEvent
                     await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataPayloadChangedEvent
                     {
                         EntityId    = processData.Id,
@@ -56,7 +62,9 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             {
                 var claimed = await camundaService.CamundaClaimedTasks(
                                   processData.ProcessInstanceId, parentTask.BlockCode)
-                              ?? throw new HandlerException($"Не найдена задача в Camunda: {processData.ProcessInstanceId} {parentTask.BlockCode};", ErrorCodesEnum.Camunda);
+                              ?? throw new HandlerException(
+                                     $"Не найдена задача в Camunda: {processData.ProcessInstanceId} {parentTask.BlockCode};",
+                                     ErrorCodesEnum.Camunda);
 
                 var variables = new Dictionary<string, object>();
 
@@ -69,38 +77,37 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 {
                     if (stage == ProcessStage.Level1)
                     {
-                        // execution может быть строкой ("executed"/"toSecondLine") ИЛИ объектом {code,name}
-                        var code = ReadExecutionCode(command.PayloadJson, levelIndex: 1);
+                        var code = ReadExecutionCode(command.PayloadJson, levelIndex: 1); // "executed"|"toSecondLine"|null
                         bool line1 = code?.Equals("executed", StringComparison.OrdinalIgnoreCase) == true
                                      ? true
                                      : code?.Equals("toSecondLine", StringComparison.OrdinalIgnoreCase) == true
                                          ? false
                                          : true; // дефолт
-
-                        // Имя переменной как в BPMN: "Line1" (без пробела)
                         variables["Line1"] = line1;
                     }
                     else if (stage == ProcessStage.Level2)
                     {
-                        // Новая форма: execution = { code: "Executed"|"ExternalOrg", name: "..." }
+                        // ожидания: "Executed" | "ExternalOrg" | "Line3"
                         var code = ReadExecutionCode(command.PayloadJson, levelIndex: 2);
 
-                        bool? line2 = code switch
+                        string? line2 = code switch
                         {
-                            // согласно твоему правилу
-                            var c when c?.Equals("Executed", StringComparison.OrdinalIgnoreCase) == true     => true,
-                            var c when c?.Equals("ExternalOrg", StringComparison.OrdinalIgnoreCase) == true  => false,
-                            _                                                                               => null
+                            var c when c?.Equals("Executed",    StringComparison.OrdinalIgnoreCase) == true => "Executed",
+                            var c when c?.Equals("ExternalOrg", StringComparison.OrdinalIgnoreCase) == true => "ExternalOrg",
+                            // на схеме "Line1 = Line3" — для Level2 кладём явную строку "Line3"
+                            var c when c?.Equals("Line3",       StringComparison.OrdinalIgnoreCase) == true
+                                   || c?.Equals("toThirdLine", StringComparison.OrdinalIgnoreCase) == true   => "Line3",
+                            _ => null
                         };
 
-                        if (line2.HasValue)
-                            variables["Line2"] = line2.Value;
+                        if (!string.IsNullOrWhiteSpace(line2))
+                            variables["Line2"] = line2!;
                     }
                     else if (stage == ProcessStage.Level3)
                     {
-                        // Если понадобится аналогично — раскомментируй и задавай правило маппинга
+                        // при необходимости можно добавить Line3 аналогично
                         // var code = ReadExecutionCode(command.PayloadJson, levelIndex: 3);
-                        // variables["Line3"] = ... ;
+                        // variables["Line3"] = code; // если по схеме требуется строка
                     }
                 }
                 // ===== /Вторая схема =====
@@ -146,7 +153,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
 
         // ===== helpers =====
 
-        // старое правило поиска classification (Dictionary payload)
         private static string? ReadClassification(Dictionary<string, object>? payload)
         {
             if (payload is null) return null;
@@ -193,7 +199,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             };
         }
 
-        // прочитать classification из сохранённого payload (JSON string)
         private static string? ReadClassificationFromJson(string? json)
         {
             if (string.IsNullOrWhiteSpace(json)) return null;
@@ -231,7 +236,6 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             catch { return null; }
         }
 
-        // апсерт classification в JSON payload процесса
         private static string UpsertClassificationIntoJson(string? json, string value)
         {
             var root = (JsonNode.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json) as JsonObject) ?? new JsonObject();
@@ -248,7 +252,8 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
             return root.ToJsonString();
         }
 
-        /// универсальный парсер execution.code для level1/level2/level3
+        /// Универсальный парсер execution.code для level1/level2/level3.
+        /// Поддерживает строки и объекты { code, name }.
         private static string? ReadExecutionCode(Dictionary<string, object>? payload, int levelIndex)
         {
             try
@@ -269,11 +274,11 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
                 var form = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(fdRaw));
                 if (form is null || !form.TryGetValue("execution", out var exRaw) || exRaw is null) return null;
 
-                // 1) если execution — строка ("executed"/"toSecondLine"), вернём её
+                // 1) execution — строка?
                 if (exRaw is JsonElement je && je.ValueKind == JsonValueKind.String)
                     return je.GetString();
 
-                // 2) если execution — объект {code,name}
+                // 2) execution — объект {code,name}
                 var exDict = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(exRaw));
                 if (exDict != null && exDict.TryGetValue("code", out var codeRaw) && codeRaw != null)
                     return JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(codeRaw));
@@ -287,7 +292,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         }
     }
 
-    // ===== helpers для JsonNode (case-insensitive) =====
+    // ==== JsonNode helpers ====
     internal static class JsonCaseHelpers
     {
         public static JsonNode? TryGetPropertyCaseInsensitive(this JsonObject obj, string key)
@@ -333,8 +338,7 @@ namespace BpmBaseApi.Application.CommandHandlers.Process
         }
     }
 
-    // ==== ИВЕНТ ДЛЯ ОБНОВЛЕНИЯ PAYLOAD ====
-    // ВАЖНО: у тебя RaiseEvent ожидает BaseEntityEvent. Наследуемся от него.
+    // ==== событие для обновления payload ====
     public class ProcessDataPayloadChangedEvent : BaseEntityEvent
     {
         public Guid EntityId { get; set; }
