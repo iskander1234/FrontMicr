@@ -1,286 +1,542 @@
-using BpmBaseApi.Domain.Entities.Event.Process;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using BpmBaseApi.Domain.Entities.Process;
 using BpmBaseApi.Domain.Models;
 using BpmBaseApi.Persistence.Interfaces;
 using BpmBaseApi.Services.Interfaces;
 using BpmBaseApi.Shared.Commands.Process;
-using BpmBaseApi.Shared.Enum;
+using BpmBaseApi.Shared.Dtos;
 using BpmBaseApi.Shared.Models.Camunda;
-using BpmBaseApi.Shared.Models.Process;
 using BpmBaseApi.Shared.Responses.Process;
 using MediatR;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Nodes;
-using BpmBaseApi.Domain.Entities.Process;
-using BpmBaseApi.Shared.Dtos;
-using static BpmBaseApi.Shared.Models.Process.CommonData;
+using BpmBaseApi.Domain.Entities.Event.Process;
+using BpmBaseApi.Shared.Enum;
 
 namespace BpmBaseApi.Application.CommandHandlers.Process
 {
-    public class StartProcessCommandHandler(
+    /// <summary>
+    /// ITSM Send:
+    /// - если во входном payload есть processData и он отличается — обновляем payload процесса (DB) без оглядки на classification
+    /// - для схемы Level1/2/3: отправляем в Camunda соответствующие переменные (Line1/Line2/…)
+    /// - иначе поднимаем родителя в Pending
+    /// </summary>
+    public class SendProcessITSMCommandHandler(
         IUnitOfWork unitOfWork,
-        IPayloadReaderService payloadReader,
-        IProcessTaskService helperService,
-        ICamundaService camundaService)
-        : IRequestHandler<StartProcessCommand, BaseResponseDto<StartProcessResponse>>
+        ICamundaService camundaService,
+        IProcessTaskService processTaskService)
+        : IRequestHandler<SendItsmProcessCommand, BaseResponseDto<SendProcessResponse>>
     {
-        public async Task<BaseResponseDto<StartProcessResponse>> Handle(
-            StartProcessCommand command,
-            CancellationToken cancellationToken)
+        public async Task<BaseResponseDto<SendProcessResponse>> Handle(
+            SendItsmProcessCommand command, CancellationToken ct)
         {
-            var process = await unitOfWork.ProcessRepository
-                              .GetByFilterAsync(cancellationToken, p => p.ProcessCode == command.ProcessCode)
-                          ?? throw new HandlerException($"Процесс с кодом {command.ProcessCode} не найден",
-                              ErrorCodesEnum.Business);
+            // 1) Текущая подзадача должна быть Pending
+            var currentTask = await unitOfWork.ProcessTaskRepository.GetByFilterAsync(
+                                  ct, t => t.Id == command.TaskId && t.Status == "Pending")
+                              ?? throw new HandlerException("Задача не найдена или уже обработана",
+                                  ErrorCodesEnum.Business);
 
-            var jsonOptions = new JsonSerializerOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-            var payloadJson = JsonSerializer.Serialize(command.Payload, jsonOptions);
+            var processData = await unitOfWork.ProcessDataRepository.GetByIdAsync(ct, currentTask.ProcessDataId)
+                              ?? throw new HandlerException("Заявка не найдена", ErrorCodesEnum.Business);
 
-            var regData = payloadReader.ReadSection<RegData>(command.Payload, "regData");
-            var processDataDto = payloadReader.ReadSection<ProcessDataDto>(command.Payload, "processData");
+            var parentTask = await unitOfWork.ProcessTaskRepository.GetByIdAsync(ct, currentTask.ParentTaskId!.Value);
 
-            // NEW: читаем номер из payload.regData.regnum
-            var regnumFromPayload = TryGetRegnumFromPayload(payloadJson);
+            // 2) ОБНОВЛЯЕМ ТОЛЬКО processData, если пришли изменения (НЕ завязано на classification)
+            await UpdateProcessDataIfChangedAsync(processData, command.PayloadJson, unitOfWork, ct);
 
-            // === A) если regnum задан, пробуем использовать существующую заявку ===
-            if (!string.IsNullOrWhiteSpace(regnumFromPayload))
+            // 3) Camunda / Pending
+            if (string.Equals(parentTask.AssigneeCode, "system", StringComparison.OrdinalIgnoreCase))
             {
-                var alreadyStarted = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
-                    cancellationToken,
-                    p => p.ProcessCode == process.ProcessCode
-                         && p.RegNumber == regnumFromPayload
-                         && p.StatusCode == "Started"
-                );
-                if (alreadyStarted is not null)
+                var claimed = await camundaService.CamundaClaimedTasks(
+                                  processData.ProcessInstanceId, parentTask.BlockCode)
+                              ?? throw new HandlerException(
+                                  $"Не найдена задача в Camunda: {processData.ProcessInstanceId} {parentTask.BlockCode};",
+                                  ErrorCodesEnum.Camunda);
+
+                var variables = new Dictionary<string, object>();
+
+                var classification = ReadClassificationLoose(command.PayloadJson, processData.PayloadJson);
+                if (!string.IsNullOrWhiteSpace(classification))
+                    variables["classification"] = classification;
+
+                // ===== Схема Level1/2/3 =====
+                if (Enum.TryParse<ProcessStage>(currentTask.BlockCode, out var stage))
                 {
-                    return new BaseResponseDto<StartProcessResponse>
+                    if (stage == ProcessStage.Level1)
                     {
-                        Data = new StartProcessResponse
-                            { ProcessGuid = alreadyStarted.Id, RegNumber = alreadyStarted.RegNumber }
-                    };
-                }
-
-                var draft = await unitOfWork.ProcessDataRepository.GetByFilterAsync(
-                    cancellationToken,
-                    p => p.ProcessCode == process.ProcessCode
-                         && p.RegNumber == regnumFromPayload
-                         && p.StatusCode == "Draft"
-                );
-
-                if (draft is not null)
-                {
-                    // NEW: синхронизируем payload.regData.regnum с реальным номером черновика
-                    payloadJson = SetRegnumInPayload(payloadJson, draft.RegNumber, jsonOptions);
-
-                    // всегда фиксируем новый момент старта в payload
-                    payloadJson = SetStartDateInPayload(payloadJson, DateTime.Now, jsonOptions);
-                    await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
+                        // "executed" => true, "toSecondLine" => false, дефолт true
+                        var code = ReadExecutionCode(command.PayloadJson, levelIndex: 1);
+                        bool line1 = code?.Equals("executed", StringComparison.OrdinalIgnoreCase) == true
+                            ? true
+                            : code?.Equals("toSecondLine", StringComparison.OrdinalIgnoreCase) == true
+                                ? false
+                                : true;
+                        variables["Line1"] = line1; // если в BPMN имя с пробелом — замени ключ на "Line 1"
+                    }
+                    else if (stage == ProcessStage.Level2)
                     {
-                        EntityId = draft.Id,
-                        StatusCode = "Started",
-                        StatusName = "В работе",
-                        PayloadJson = payloadJson,
-                        InitiatorCode = regData?.UserCode,
-                        InitiatorName = regData?.UserName,
-                        Title = processDataDto?.DocumentTitle ?? draft.Title,
-                        StartedAt = DateTime.Now
-                    }, cancellationToken);
-
-                    await StartCamundaAndLinkAsync(draft.Id, cancellationToken);
-                    await AddFilesUpsertAsync(draft.Id, payloadJson, cancellationToken);
-                    await WriteHistoryStartIfAbsentAsync(draft.Id, draft.RegNumber, payloadJson, cancellationToken);
-
-                    return new BaseResponseDto<StartProcessResponse>
-                    {
-                        Data = new StartProcessResponse { ProcessGuid = draft.Id, RegNumber = draft.RegNumber }
-                    };
-                }
-            }
-
-            // === B) черновика нет — создаём новую Started ===
-            var requestNumber = await helperService.GenerateRequestNumberAsync(command.ProcessCode, cancellationToken);
-
-            // NEW: вписываем номер в payload.regData.regnum
-            payloadJson = SetRegnumInPayload(payloadJson, requestNumber, jsonOptions);
-            payloadJson = SetStartDateInPayload(payloadJson, DateTime.Now, jsonOptions);
-            var createdEvt = new ProcessDataCreatedEvent
-            {
-                ProcessId = process.Id,
-                ProcessCode = process.ProcessCode,
-                ProcessName = process.ProcessName,
-                RegNumber = requestNumber,
-                InitiatorCode = regData.UserCode,
-                InitiatorName = regData.UserName,
-                StatusCode = "Started",
-                StatusName = "В работе",
-                PayloadJson = payloadJson,
-                Title = processDataDto.DocumentTitle,
-                StartedAt = DateTime.Now
-            };
-            await unitOfWork.ProcessDataRepository.RaiseEvent(createdEvt, cancellationToken);
-
-            await StartCamundaAndLinkAsync(createdEvt.EntityId, cancellationToken);
-            await AddFilesUpsertAsync(createdEvt.EntityId, payloadJson, cancellationToken);
-            await WriteHistoryStartIfAbsentAsync(createdEvt.EntityId, requestNumber, payloadJson, cancellationToken);
-
-            return new BaseResponseDto<StartProcessResponse>
-            {
-                Data = new StartProcessResponse { ProcessGuid = createdEvt.EntityId, RegNumber = requestNumber }
-            };
-
-            // ---------- ЛОКАЛЬНЫЕ ФУНКЦИИ (NEW) ----------
-
-            static string? TryGetRegnumFromPayload(string payload)
-            {
-                try
-                {
-                    var root = JsonNode.Parse(payload)!.AsObject();
-                    return root["regData"]?["regnum"]?.GetValue<string>()?.Trim();
-                }
-                catch
-                {
-                    return null;
-                }
-            }
-
-            static string SetRegnumInPayload(string payload, string regnum, JsonSerializerOptions opts)
-            {
-                var root = JsonNode.Parse(payload)!.AsObject();
-                if (root["regData"] is not JsonObject rd)
-                {
-                    rd = new JsonObject();
-                    root["regData"] = rd;
-                }
-
-                rd["regnum"] = regnum;
-                return JsonSerializer.Serialize(root, opts);
-            }
-
-            async Task StartCamundaAndLinkAsync(Guid processDataId, CancellationToken ct)
-            {
-                var pi = await camundaService.CamundaStartProcess(new CamundaStartProcessRequest
-                {
-                    processCode = command.ProcessCode,
-                    variables = new Dictionary<string, object> { { "processGuid", processDataId.ToString() } }
-                });
-
-                await unitOfWork.ProcessDataRepository.RaiseEvent(
-                    new ProcessDataProcessInstanseIdChangedEvent
-                    {
-                        EntityId = processDataId,
-                        ProcessInstanceId = pi
-                    },
-                    ct);
-            }
-            
-            async Task AddFilesUpsertAsync(Guid processDataId, string payload, CancellationToken ct)
-            {
-                try
-                {
-                    var root = JsonNode.Parse(payload)!.AsObject();
-                    var files = root["files"] as JsonArray;
-                    if (files is null || files.Count == 0) return;
-
-                    // важно: берём все (и удалённые, и активные)
-                    var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
-                        ct, f => f.ProcessDataId == processDataId);
-
-                    var byFileId = existing
-                        .Where(x => x.FileId != Guid.Empty)
-                        .ToDictionary(x => x.FileId, x => x);
-
-                    foreach (var node in files.OfType<JsonObject>())
-                    {
-                        var fileIdStr = node["fileId"]?.GetValue<string>();
-                        var fileName = node["fileName"]?.GetValue<string>();
-                        var fileType = node["fileType"]?.GetValue<string>();
-
-                        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
-                            throw new HandlerException(
-                                "Каждый объект в \"files\" должен иметь непустые fileName и fileType",
-                                ErrorCodesEnum.Business);
-                        if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
-                            throw new HandlerException(
-                                "Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
-                                ErrorCodesEnum.Business);
-
-                        if (!byFileId.TryGetValue(fileId, out var ex))
+                        // строковая переменная: Executed | ExternalOrg | Line3 (toThirdLine -> Line3)
+                        var code = ReadExecutionCode(command.PayloadJson, levelIndex: 2);
+                        string? line2 = code switch
                         {
-                            await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
-                            {
-                                EntityId = Guid.NewGuid(),
-                                ProcessDataId = processDataId,
-                                FileId = fileId,
-                                FileName = fileName!,
-                                FileType = fileType!
-                            }, ct);
-                        }
-                        else
-                        {
-                            // если был удалён раньше — вернём в активные; если имя/тип изменились — обновим
-                            if (ex.State != ProcessFileState.Active || ex.FileName != fileName ||
-                                ex.FileType != fileType)
-                            {
-                                await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
-                                {
-                                    EntityId = ex.Id,
-                                    State = ProcessFileState.Active,
-                                    FileName = fileName,
-                                    FileType = fileType
-                                }, ct);
-                            }
-                        }
+                            var c when c?.Equals("Executed", StringComparison.OrdinalIgnoreCase) == true => "Executed",
+                            var c when c?.Equals("ExternalOrg", StringComparison.OrdinalIgnoreCase) == true =>
+                                "ExternalOrg",
+                            var c when c?.Equals("Line3", StringComparison.OrdinalIgnoreCase) == true
+                                       || c?.Equals("toThirdLine", StringComparison.OrdinalIgnoreCase) ==
+                                       true => "Line3",
+                            _ => null
+                        };
+                        if (!string.IsNullOrWhiteSpace(line2))
+                            variables["Line2"] = line2!;
+                    }
+                    else if (stage == ProcessStage.Level3)
+                    {
+                        // при необходимости — аналогично добавить Line3
+                        // var code = ReadExecutionCode(command.PayloadJson, 3);
+                        // variables["Line3"] = code;
                     }
                 }
-                catch
+                // ===== /схема =====
+
+                var submit = await camundaService.CamundaSubmitTask(new CamundaSubmitTaskRequest
                 {
-                    /* логирование по желанию */
-                }
+                    TaskId = claimed.TaskId,
+                    Variables = variables
+                });
+
+                if (!submit.Success)
+                    throw new HandlerException($"Ошибка при отправке Msg:{submit.Msg}", ErrorCodesEnum.Camunda);
+
+                // Лог + закрытие текущей (дочерней)
+                await processTaskService.LogHistoryItsmAsync(currentTask, command, currentTask.AssigneeCode, ct);
+                await processTaskService.FinalizeTaskAsync(currentTask, ct);
+                await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
+
+                // Финализация родителя (system)
+                await processTaskService.FinalizeTaskAsync(parentTask, ct);
+            }
+            else
+            {
+                await unitOfWork.ProcessTaskRepository.RaiseEvent(new ProcessTaskStatusChangedEvent
+                {
+                    EntityId = parentTask.Id,
+                    Status = "Pending"
+                }, ct);
+
+                if (!string.IsNullOrWhiteSpace(parentTask.AssigneeCode))
+                    await processTaskService.RefreshUserTaskCacheAsync(parentTask.AssigneeCode, ct);
+
+                await processTaskService.LogHistoryItsmAsync(currentTask, command, currentTask.AssigneeCode, ct);
+                await processTaskService.FinalizeTaskAsync(currentTask, ct);
+                await processTaskService.RefreshUserTaskCacheAsync(currentTask.AssigneeCode, ct);
             }
 
-
-            async Task WriteHistoryStartIfAbsentAsync(Guid processDataId, string regNumber, string payload,
-                CancellationToken ct)
+            return new BaseResponseDto<SendProcessResponse>
             {
-                var hasStart = await unitOfWork.ProcessTaskHistoryRepository.CountAsync(
-                    ct, h => h.ProcessDataId == processDataId && h.Action == ProcessAction.Start.ToString());
-                if (hasStart > 0) return;
+                Data = new SendProcessResponse { Success = true }
+            };
+        }
 
-                await unitOfWork.ProcessTaskHistoryRepository.RaiseEvent(new ProcessTaskHistoryCreatedEvent
+        // ====================== UPDATE processData ======================
+
+        private static async Task UpdateProcessDataIfChangedAsync(
+            ProcessDataEntity processData,
+            Dictionary<string, object>? incomingPayload,
+            IUnitOfWork unitOfWork,
+            CancellationToken ct)
+        {
+            var incomingProcessData = ExtractIncomingProcessData(incomingPayload);
+            if (incomingProcessData is null) return; // не прислали processData — ничего не делаем
+
+            var merged = MergeProcessDataSection(processData.PayloadJson, incomingProcessData);
+
+            if (!string.Equals(merged, processData.PayloadJson, StringComparison.Ordinal))
+            {
+                // Поднимаем штатное событие редактирования (оно не трогает ProcessCode и пр. not-null поля)
+                await unitOfWork.ProcessDataRepository.RaiseEvent(new ProcessDataEditedEvent
                 {
-                    ProcessDataId = processDataId,
-                    TaskId = processDataId,
-                    Action = ProcessAction.Start.ToString(),
-                    BlockName = "Регистрационная форма",
-                    Timestamp = DateTime.Now,
-                    PayloadJson = payload,
-                    Comment = "",
-                    Description = "",
-                    ProcessCode = command.ProcessCode,
-                    ProcessName = process.ProcessName,
-                    RegNumber = regNumber,
-                    InitiatorCode = regData.UserCode,
-                    InitiatorName = regData.UserName,
-                    AssigneeCode = regData.UserCode,
-                    AssigneeName = regData.UserName,
-                    Title = processDataDto.DocumentTitle,
-                    ActionName = "Зарегистрировано"
+                    EntityId = processData.Id,
+                    StatusCode = processData.StatusCode,
+                    StatusName = processData.StatusName,
+                    PayloadJson = merged,
+                    InitiatorCode = processData.InitiatorCode,
+                    InitiatorName = processData.InitiatorName,
+                    Title = processData.Title
                 }, ct);
+
+                // Если у тебя файлы лежат в payload — держим в синхроне
+                await ReconcileFilesAsync(processData.Id, merged, unitOfWork, ct);
+
+                // Локально обновим, чтобы ниже использовать уже новую версию
+                processData.PayloadJson = merged;
             }
         }
 
-        static string SetStartDateInPayload(string payload, DateTime dt, JsonSerializerOptions opts)
+        /// Вытаскиваем JsonObject processData из входящего payload (поддержка обоих форматов).
+        private static JsonObject? ExtractIncomingProcessData(Dictionary<string, object>? payload)
         {
-            var root = JsonNode.Parse(payload)!.AsObject();
-            if (root["regData"] is not JsonObject rd)
+            if (payload is null) return null;
+
+            // формат 1: { payload: { processData: {...} } }
+            if (payload.TryGetValue("payload", out var pRaw) && pRaw is not null)
             {
-                rd = new JsonObject();
-                root["regData"] = rd;
+                var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
+                if (p != null && p.TryGetValue("processData", out var pdRaw) && pdRaw is not null)
+                    return JsonNode.Parse(JsonSerializer.Serialize(pdRaw)) as JsonObject;
             }
 
-            // ISO 8601; если хочешь 'Z' — используй dt.ToUniversalTime().ToString("o")
-            rd["startdate"] = dt.ToString("o");
-            return JsonSerializer.Serialize(root, opts);
+            // формат 2: { processData: {...} }
+            if (payload.TryGetValue("processData", out var pdRaw2) && pdRaw2 is not null)
+                return JsonNode.Parse(JsonSerializer.Serialize(pdRaw2)) as JsonObject;
+
+            return null;
+        }
+
+        /// Глубокий merge ТОЛЬКО секции processData (массивы/примитивы — overwrite).
+        private static string MergeProcessDataSection(string? baseJson, JsonObject incomingProcessData)
+        {
+            var root = (JsonNode.Parse(string.IsNullOrWhiteSpace(baseJson) ? "{}" : baseJson) as JsonObject) ??
+                       new JsonObject();
+            var pd = root["processData"] as JsonObject ?? new JsonObject();
+            root["processData"] = pd;
+
+            DeepMerge(pd, incomingProcessData);
+            return root.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+
+            static void DeepMerge(JsonObject target, JsonObject patch)
+            {
+                foreach (var kv in patch)
+                {
+                    if (kv.Value is null)
+                    {
+                        target[kv.Key] = null;
+                        continue;
+                    }
+
+                    if (kv.Value is JsonObject patchObj)
+                    {
+                        if (target[kv.Key] is JsonObject targetObj)
+                            DeepMerge(targetObj, patchObj);
+                        else
+                            target[kv.Key] = patchObj.DeepClone();
+                    }
+                    else
+                    {
+                        target[kv.Key] = kv.Value.DeepClone();
+                    }
+                }
+            }
+        }
+
+        /// Универсальный парсер execution.code для level1/2/3 (строка или {code,name}).
+        private static string? ReadExecutionCode(Dictionary<string, object>? payload, int levelIndex)
+        {
+            try
+            {
+                if (payload is null) return null;
+
+                // поддержка обоих форматов: payload.processData.* ИЛИ processData.* на верхнем уровне
+                object? pdRaw = null;
+
+                if (payload.TryGetValue("payload", out var pRaw) && pRaw is not null)
+                {
+                    var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
+                    if (p is not null && p.TryGetValue("processData", out var pdRaw1) && pdRaw1 is not null)
+                        pdRaw = pdRaw1;
+                }
+                else if (payload.TryGetValue("processData", out var pdRaw2) && pdRaw2 is not null)
+                {
+                    pdRaw = pdRaw2;
+                }
+
+                if (pdRaw is null) return null;
+
+                var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pdRaw));
+                var levelKey = $"level{levelIndex}";
+                if (pd is null || !pd.TryGetValue(levelKey, out var lRaw) || lRaw is null) return null;
+
+                var level = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(lRaw));
+                if (level is null || !level.TryGetValue("formData", out var fdRaw) || fdRaw is null) return null;
+
+                var form = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(fdRaw));
+                if (form is null || !form.TryGetValue("execution", out var exRaw) || exRaw is null) return null;
+
+                if (exRaw is JsonElement je && je.ValueKind == JsonValueKind.String)
+                    return je.GetString();
+
+                var exDict = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(exRaw));
+                if (exDict != null && exDict.TryGetValue("code", out var codeRaw) && codeRaw != null)
+                    return JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(codeRaw));
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // ===== при необходимости — синхронизация файлов как в твоём рабочем коде =====
+        private static async Task ReconcileFilesAsync(
+            Guid processDataId,
+            string payloadJson,
+            IUnitOfWork unitOfWork,
+            CancellationToken ct)
+        {
+            JsonArray? filesArr = null;
+            try
+            {
+                var root = JsonNode.Parse(payloadJson)!.AsObject();
+                filesArr = root["files"] as JsonArray;
+            }
+            catch
+            {
+                /* нет секции files */
+            }
+
+            var incoming = new Dictionary<Guid, (string fileName, string fileType)>();
+            if (filesArr is not null)
+            {
+                foreach (var node in filesArr.OfType<JsonObject>())
+                {
+                    var fileIdStr = node["fileId"]?.GetValue<string>();
+                    var fileName = node["fileName"]?.GetValue<string>();
+                    var fileType = node["fileType"]?.GetValue<string>();
+
+                    if (string.IsNullOrWhiteSpace(fileIdStr) || !Guid.TryParse(fileIdStr, out var fileId))
+                        throw new HandlerException(
+                            "Каждый объект в \"files\" должен иметь корректный GUID в поле fileId",
+                            ErrorCodesEnum.Business);
+                    if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrWhiteSpace(fileType))
+                        throw new HandlerException(
+                            "Каждый объект в \"files\" должен иметь непустые fileName и fileType",
+                            ErrorCodesEnum.Business);
+
+                    incoming[fileId] = (fileName!, fileType!);
+                }
+            }
+
+            var existing = await unitOfWork.ProcessFileRepository.GetByFilterListAsync(
+                ct, f => f.ProcessDataId == processDataId);
+
+            var byFileId = existing
+                .Where(e => e.FileId != Guid.Empty)
+                .ToDictionary(e => e.FileId, e => e);
+
+            var incomingIds = incoming.Keys.ToHashSet();
+
+            // add/restore/rename
+            foreach (var kv in incoming)
+            {
+                var fileId = kv.Key;
+                var (fileName, fileType) = kv.Value;
+
+                if (!byFileId.TryGetValue(fileId, out var ex))
+                {
+                    await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileCreatedEvent
+                    {
+                        EntityId = Guid.NewGuid(),
+                        ProcessDataId = processDataId,
+                        FileId = fileId,
+                        FileName = fileName,
+                        FileType = fileType
+                    }, ct);
+                }
+                else if (ex.State != ProcessFileState.Active || ex.FileName != fileName || ex.FileType != fileType)
+                {
+                    await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
+                    {
+                        EntityId = ex.Id,
+                        State = ProcessFileState.Active,
+                        FileName = fileName,
+                        FileType = fileType
+                    }, ct);
+                }
+            }
+
+            // soft delete
+            foreach (var ex in byFileId.Values)
+            {
+                if (!incomingIds.Contains(ex.FileId) && ex.State != ProcessFileState.Removed)
+                {
+                    await unitOfWork.ProcessFileRepository.RaiseEvent(new ProcessFileStatusChangedEvent
+                    {
+                        EntityId = ex.Id,
+                        State = ProcessFileState.Removed
+                    }, ct);
+                }
+            }
+        }
+
+
+        private static string? ReadClassificationFromJson(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return null;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+
+                static bool TryGetPropertyCaseInsensitive(JsonElement obj, string name, out JsonElement value)
+                {
+                    if (obj.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var p in obj.EnumerateObject())
+                        {
+                            if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                value = p.Value;
+                                return true;
+                            }
+                        }
+                    }
+
+                    value = default;
+                    return false;
+                }
+
+                static string? Canon(string? s)
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return null;
+                    var n = s.Trim().ToLowerInvariant();
+                    return n switch
+                    {
+                        "emergency" => "Emergency",
+                        "standard" => "Standard",
+                        "normal" => "Normal",
+                        _ => null
+                    };
+                }
+
+                // processData.analyst.classificationCode
+                if (TryGetPropertyCaseInsensitive(root, "processData", out var pd) &&
+                    TryGetPropertyCaseInsensitive(pd, "analyst", out var analyst) &&
+                    TryGetPropertyCaseInsensitive(analyst, "classificationCode", out var cc) &&
+                    cc.ValueKind == JsonValueKind.String)
+                {
+                    return Canon(cc.GetString());
+                }
+
+                // плоские варианты в корне
+                string? flat =
+                    (TryGetPropertyCaseInsensitive(root, "classification", out var c) &&
+                     c.ValueKind == JsonValueKind.String
+                        ? c.GetString()
+                        : null)
+                    ?? (TryGetPropertyCaseInsensitive(root, "itsmLevel", out var il) &&
+                        il.ValueKind == JsonValueKind.String
+                        ? il.GetString()
+                        : null)
+                    ?? (TryGetPropertyCaseInsensitive(root, "level", out var lvl) &&
+                        lvl.ValueKind == JsonValueKind.String
+                        ? lvl.GetString()
+                        : null)
+                    ?? (TryGetPropertyCaseInsensitive(root, "priority", out var pr) &&
+                        pr.ValueKind == JsonValueKind.String
+                        ? pr.GetString()
+                        : null);
+
+                if (flat is not null) return Canon(flat);
+
+                // плоские варианты внутри processData (на всякий случай)
+                if (pd.ValueKind == JsonValueKind.Object)
+                {
+                    flat =
+                        (TryGetPropertyCaseInsensitive(pd, "classification", out var c2) &&
+                         c2.ValueKind == JsonValueKind.String
+                            ? c2.GetString()
+                            : null)
+                        ?? (TryGetPropertyCaseInsensitive(pd, "itsmLevel", out var il2) &&
+                            il2.ValueKind == JsonValueKind.String
+                            ? il2.GetString()
+                            : null)
+                        ?? (TryGetPropertyCaseInsensitive(pd, "level", out var lvl2) &&
+                            lvl2.ValueKind == JsonValueKind.String
+                            ? lvl2.GetString()
+                            : null)
+                        ?? (TryGetPropertyCaseInsensitive(pd, "priority", out var pr2) &&
+                            pr2.ValueKind == JsonValueKind.String
+                            ? pr2.GetString()
+                            : null);
+
+                    if (flat is not null) return Canon(flat);
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            return null;
+        }
+
+
+        private static string? ReadClassificationLoose(Dictionary<string, object>? payload, string? storedPayloadJson)
+        {
+            string? fromIncoming = null;
+
+            try
+            {
+                if (payload is not null)
+                {
+                    // формат: { payload: { processData: { analyst: { classificationCode } } } }
+                    if (payload.TryGetValue("payload", out var pRaw) && pRaw is not null)
+                    {
+                        var p = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pRaw));
+                        if (p is not null && p.TryGetValue("processData", out var pdRaw) && pdRaw is not null)
+                        {
+                            var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(
+                                JsonSerializer.Serialize(pdRaw));
+                            if (pd is not null && pd.TryGetValue("analyst", out var aRaw) && aRaw is not null)
+                            {
+                                var analyst =
+                                    JsonSerializer.Deserialize<Dictionary<string, object>>(
+                                        JsonSerializer.Serialize(aRaw));
+                                if (analyst != null && analyst.TryGetValue("classificationCode", out var cRaw) &&
+                                    cRaw is not null)
+                                    fromIncoming = JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(cRaw));
+                            }
+                        }
+                    }
+
+                    // формат: { processData: { analyst: { classificationCode } } }
+                    if (fromIncoming is null && payload.TryGetValue("processData", out var pd2) && pd2 is not null)
+                    {
+                        var pd = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(pd2));
+                        if (pd is not null && pd.TryGetValue("analyst", out var a2) && a2 is not null)
+                        {
+                            var analyst =
+                                JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(a2));
+                            if (analyst != null && analyst.TryGetValue("classificationCode", out var c2) &&
+                                c2 is not null)
+                                fromIncoming = JsonSerializer.Deserialize<string>(JsonSerializer.Serialize(c2));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                /* ignore */
+            }
+
+            // fallback: берём из сохранённого payload процесса
+            var fromStored = ReadClassificationFromJson(storedPayloadJson);
+
+            static string? Canon(string? s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                var n = s.Trim().ToLowerInvariant();
+                return n switch
+                {
+                    "emergency" => "Emergency",
+                    "standard" => "Standard",
+                    "normal" => "Normal",
+                    _ => null
+                };
+            }
+
+            return Canon(fromIncoming) ?? Canon(fromStored);
         }
     }
 }
