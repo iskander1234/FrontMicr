@@ -1,280 +1,228 @@
-// ИСПРАВЛЕННЫЙ метод CreateIgCreativeAsync
+// ============================================
+// ПАТЧ: ТОЛЬКО КРИТИЧЕСКИЕ ИСПРАВЛЕНИЯ
+// ============================================
+// Скопируйте эти методы в ваш AdCreationService.cs
+// Замените существующие методы с такими же именами
 
-private async Task<string> CreateIgCreativeAsync(
-    HttpClient http, string actId, CreateVideoAdRequest r, string videoId, string igUserId,
-    bool wantsVideo, CancellationToken ct)
+// ============================================
+// 1. RunVideoAdFlowAsync - ИЗМЕНИТЬ ТАЙМАУТ HttpClient
+// ============================================
+public async Task<CreateVideoAdResult> RunVideoAdFlowAsync(
+    CreateVideoAdRequest r,
+    CancellationToken ct = default)
 {
-    var sw = System.Diagnostics.Stopwatch.StartNew();
-    void Trace(string m) => _log.LogInformation("IGCreative STEP {Ms}ms :: {Msg}", sw.ElapsedMilliseconds, m);
-
-    // === CRITICAL FIX #1: Гарантировать imageHash ПЕРЕД линком ===
-    Trace("EnsureThumbHashAsync (aggressive) start");
-    string? imageHash = null;
+    var auth = await GetValidToken(r.CompanyId, ct);
+    var http = _httpFactory.CreateClient();
+    http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.Value);
+    http.DefaultRequestHeaders.ExpectContinue = false;
     
-    // Если есть ThumbnailUrl юзера — начнём с него
-    if (!string.IsNullOrWhiteSpace(r.ThumbnailUrl))
-    {
-        try
-        {
-            imageHash = await UploadAdImageFromUrlAsync(http, actId, r.ThumbnailUrl!, ct);
-            if (!string.IsNullOrWhiteSpace(imageHash))
-            {
-                await WaitAdImageIndexedAsync(http, actId, imageHash!, TimeSpan.FromSeconds(30), ct);
-                Trace($"EnsureThumbHashAsync done (from ThumbnailUrl) hash={imageHash.Substring(0, Math.Min(8, imageHash.Length))}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _log.LogWarning(ex, "Upload from ThumbnailUrl failed, will try video thumb");
-        }
-    }
+    // ============ КРИТИЧНО: БЫЛО 30 МИНУТ, СТАЛО 3 МИНУТЫ ============
+    http.Timeout = TimeSpan.FromMinutes(3);
+    
+    // ... остальной код метода БЕЗ ИЗМЕНЕНИЙ ...
+    // Просто измените строку с http.Timeout
+}
 
-    // Если ThumbnailUrl не помог — ждём превью видео (более агрессивно)
-    if (string.IsNullOrWhiteSpace(imageHash))
-    {
-        // НОВОЕ: retry с экспоненциальной задержкой, максимум 45 сек
-        var thumbTimeout = TimeSpan.FromSeconds(45);
-        var thumbDeadline = DateTime.UtcNow.AddSeconds(45);
-        int thumbAttempt = 0;
+// ============================================
+// 2. WaitVideoFullyWarmedAsync - СОКРАТИТЬ ВРЕМЯ ОЖИДАНИЯ
+// ============================================
+private async Task<VideoReadyInfo> WaitVideoFullyWarmedAsync(
+    HttpClient http, string videoId, TimeSpan timeout, CancellationToken ct)
+{
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(timeout);
 
-        while (DateTime.UtcNow < thumbDeadline && string.IsNullOrWhiteSpace(imageHash))
+    var url = $"{MetaApi.GraphBase}/{videoId}?fields=" +
+              "status{video_status,processing_phase,publishing_phase,processing_progress}," +
+              "thumbnails{data{uri}}," +
+              "format{width,height}," +
+              "is_instagram_eligible";
+
+    bool Ready(JsonDocument d, out bool igEligible, out (int w, int h)? dims)
+    {
+        igEligible = false;
+        dims = null;
+        var root = d.RootElement;
+
+        bool stReady = false;
+        if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object)
         {
-            thumbAttempt++;
-            var videoThumbUrl = await TryGetVideoThumbUrlAsync(http, videoId, ct);
-            
-            if (!string.IsNullOrWhiteSpace(videoThumbUrl))
+            var videoStatus = GetPropStringSafe(st, "video_status");
+            var processing = GetPropStringSafe(st, "processing_phase");
+            stReady = string.Equals(videoStatus, "ready", StringComparison.OrdinalIgnoreCase)
+                      && string.Equals(processing, "complete", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (root.TryGetProperty("is_instagram_eligible", out var ig))
+        {
+            var s = JsonElementToStringSafe(ig);
+            igEligible = string.Equals(s, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (root.TryGetProperty("format", out var fmts) && fmts.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var f in fmts.EnumerateArray())
             {
-                try
+                if (f.TryGetProperty("width", out var wEl) && wEl.ValueKind == JsonValueKind.Number &&
+                    f.TryGetProperty("height", out var hEl) && hEl.ValueKind == JsonValueKind.Number)
                 {
-                    imageHash = await UploadAdImageFromUrlAsync(http, actId, videoThumbUrl!, ct);
-                    if (!string.IsNullOrWhiteSpace(imageHash))
+                    var w = wEl.GetInt32();
+                    var h = hEl.GetInt32();
+                    if (w > 0 && h > 0)
                     {
-                        await WaitAdImageIndexedAsync(http, actId, imageHash!, TimeSpan.FromSeconds(20), ct);
-                        Trace($"EnsureThumbHashAsync done (from video thumb, attempt {thumbAttempt}) hash={imageHash.Substring(0, Math.Min(8, imageHash.Length))}");
+                        dims = (w, h);
                         break;
                     }
                 }
-                catch (Exception ex)
-                {
-                    _log.LogWarning(ex, "Upload from video thumb (attempt {Attempt}) failed", thumbAttempt);
-                }
-            }
-
-            // Экспоненциальная задержка: 2, 4, 8, 16 сек
-            var delayMs = Math.Min(2000 * (int)Math.Pow(2, thumbAttempt - 1), 16000);
-            if (DateTime.UtcNow.AddMilliseconds(delayMs) < thumbDeadline)
-            {
-                await Task.Delay(delayMs, ct);
-            }
-            else break;
-        }
-    }
-
-    // === CRITICAL FIX #2: Если нет imageHash, НЕ идём в link_data ===
-    if (string.IsNullOrWhiteSpace(imageHash))
-    {
-        var errMsg = wantsVideo
-            ? "Не удалось получить превью видео для Instagram (45+ сек ожидания). " +
-              "Укажите r.ThumbnailUrl или переподогрейте видео."
-            : "Нет картинки для link_data. Укажите r.ThumbnailUrl или используйте видео.";
-        
-        _log.LogError("CRITICAL: imageHash is empty. wantsVideo={WantsVideo}. {Msg}", wantsVideo, errMsg);
-        throw new InvalidOperationException(errMsg);
-    }
-
-    // === ДИАГНОСТИКА ===
-    Trace("Preflight start");
-    async Task DiagnoseIgWiringAsync()
-    {
-        var igResp = await http.GetAsync($"{MetaApi.GraphBase}/{igUserId}?fields=id,username", ct);
-        var igBody = await igResp.Content.ReadAsStringAsync(ct);
-        _log.LogInformation("Preflight IG resp {Code}: {Body}", (int)igResp.StatusCode, MetaApi.Redact(igBody));
-        igResp.EnsureSuccessStatusCode();
-
-        var pageResp = await http.GetAsync($"{MetaApi.GraphBase}/{r.PageId}?fields=instagram_business_account", ct);
-        var pageBody = await pageResp.Content.ReadAsStringAsync(ct);
-        _log.LogInformation("Preflight Page resp {Code}: {Body}", (int)pageResp.StatusCode, MetaApi.Redact(pageBody));
-        pageResp.EnsureSuccessStatusCode();
-
-        try
-        {
-            using var doc = JsonDocument.Parse(pageBody);
-            if (doc.RootElement.TryGetProperty("instagram_business_account", out var iba) &&
-                iba.TryGetProperty("id", out var idProp) &&
-                idProp.GetString() == igUserId)
-            {
-                Trace("Preflight OK (page↔ig linked)");
-                return;
             }
         }
-        catch { }
 
-        _log.LogWarning("Preflight FAIL: page {PageId} does not link to ig {IgId}", r.PageId, igUserId);
-    }
-    await DiagnoseIgWiringAsync();
-
-    // === KREATIVE BUILDING ===
-    const string PrimaryIgKey = "instagram_actor_id";
-    const string FallbackIgKey = "instagram_user_id";
-
-    Dictionary<string, object?> BuildVideoOss(string igKey)
-    {
-        return new Dictionary<string, object?>
-        {
-            ["page_id"] = r.PageId!,
-            [igKey] = igUserId,
-            ["video_data"] = new Dictionary<string, object?>
-            {
-                ["video_id"] = videoId,
-                ["message"] = r.PrimaryText ?? string.Empty,
-                ["call_to_action"] = new Dictionary<string, object?>
-                {
-                    ["type"] = "INSTAGRAM_MESSAGE",
-                    ["value"] = new Dictionary<string, object?> { ["app_destination"] = "INSTAGRAM_DIRECT" }
-                },
-                ["image_hash"] = imageHash  // ВСЕГДА включаем превью
-            }
-        };
+        return stReady && dims is not null;
     }
 
-    async Task<Dictionary<string, object?>> BuildLinkOssAsync(string igKey)
-    {
-        string link = "https://www.instagram.com/";
-        try
-        {
-            var igResp = await http.GetAsync($"{MetaApi.GraphBase}/{igUserId}?fields=username", ct);
-            if (igResp.IsSuccessStatusCode)
-            {
-                using var igDoc = JsonDocument.Parse(await igResp.Content.ReadAsStringAsync(ct));
-                if (igDoc.RootElement.TryGetProperty("username", out var u) && u.ValueKind == JsonValueKind.String)
-                    link = $"https://www.instagram.com/{u.GetString()}/";
-            }
-        }
-        catch { }
-
-        return new Dictionary<string, object?>
-        {
-            ["page_id"] = r.PageId!,
-            [igKey] = igUserId,
-            ["link_data"] = new Dictionary<string, object?>
-            {
-                ["link"] = link,
-                ["image_hash"] = imageHash,  // ОБЯЗАТЕЛЕН
-                ["message"] = r.PrimaryText ?? string.Empty,
-                ["call_to_action"] = new Dictionary<string, object?>
-                {
-                    ["type"] = "INSTAGRAM_MESSAGE",
-                    ["value"] = new Dictionary<string, object?> { ["app_destination"] = "INSTAGRAM_DIRECT" }
-                }
-            }
-        };
-    }
-
-    async Task<(bool ok, string? id, string body)> PostCreativeAsync(Dictionary<string, string> form)
-    {
-        using var resp = await http.PostAsync($"{MetaApi.GraphBase}/{actId}/adcreatives", 
-            new FormUrlEncodedContent(form), ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-        
-        if (resp.IsSuccessStatusCode)
-        {
-            using var doc = JsonDocument.Parse(body);
-            return (true, doc.RootElement.GetProperty("id").GetString(), body);
-        }
-
-        // === CRITICAL FIX #3: Гард против #1772101 ===
-        var (code, sub, ut, um, blame, _, _) = ParseFbErrorRich(body);
-        if (code == 1772101 || sub == 1772101)
-        {
-            _log.LogError("CRITICAL ERROR #1772101: No media in creative. OSS: {OSS}", 
-                form.TryGetValue("object_story_spec", out var oss) ? oss : "<missing>");
-            // Не ретраим — это системная ошибка
-            return (false, null, body);
-        }
-
-        return (false, null, body);
-    }
-
-    // === ПОПЫТКА 1: ВИДЕО ===
-    if (wantsVideo)
-    {
-        Trace("Build video OSS (actor)");
-        var ossA = BuildVideoOss(PrimaryIgKey);
-        var formA = new Dictionary<string, string>
-        {
-            ["name"] = r.AdName ?? "Creative IG (video)",
-            ["object_story_spec"] = JsonSerializer.Serialize(ossA)
-        };
-
-        var (okA, idA, bodyA) = await PostCreativeAsync(formA);
-        if (okA) 
-        { 
-            Trace("Creative OK (actor, video)"); 
-            return idA!; 
-        }
-
-        _log.LogWarning("Creative(video, actor) failed: {Body}", MetaApi.Redact(bodyA));
-        
-        // Retry с instagram_user_id только если ошибка именно о ключе
-        if (bodyA.Contains("instagram_actor_id", StringComparison.OrdinalIgnoreCase))
-        {
-            Trace("Retry with instagram_user_id");
-            var ossU = BuildVideoOss(FallbackIgKey);
-            var formU = new Dictionary<string, string>
-            {
-                ["name"] = r.AdName ?? "Creative IG (video, user fallback)",
-                ["object_story_spec"] = JsonSerializer.Serialize(ossU)
-            };
-            var (okU, idU, bodyU) = await PostCreativeAsync(formU);
-            if (okU) 
-            { 
-                Trace("Creative OK (user, video)"); 
-                return idU!; 
-            }
-            
-            if (r.VideoOnly)
-                throw new InvalidOperationException($"Creative(IG video, both keys) failed: {MetaApi.Redact(bodyU)}");
-        }
-        else if (r.VideoOnly)
-        {
-            throw new InvalidOperationException($"Creative(IG video, actor) failed: {MetaApi.Redact(bodyA)}");
-        }
-    }
-
-    // === ПОПЫТКА 2: LINK_DATA (НА ЭТОМ ЭТАПЕ imageHash ГАРАНТИРОВАН) ===
-    Trace($"Build link OSS (actor) with imageHash={imageHash.Substring(0, Math.Min(8, imageHash.Length))}");
-    var ossL = await BuildLinkOssAsync(PrimaryIgKey);
-    var formL = new Dictionary<string, string>
-    {
-        ["name"] = r.AdName ?? "Creative IG (link_data)",
-        ["object_story_spec"] = JsonSerializer.Serialize(ossL)
-    };
-    var (okL, idL, bodyL) = await PostCreativeAsync(formL);
-    if (okL) 
-    { 
-        Trace("Creative OK (actor, link)"); 
-        return idL!; 
-    }
-
-    _log.LogWarning("Creative(link, actor) failed: {Body}", MetaApi.Redact(bodyL));
+    bool lastIgEligible = false;
+    (int w, int h)? lastDims = null;
+    int probe = 0;
     
-    if (bodyL.Contains("instagram_actor_id", StringComparison.OrdinalIgnoreCase))
+    try
     {
-        Trace("Retry link with instagram_user_id");
-        var ossL2 = await BuildLinkOssAsync(FallbackIgKey);
-        var formL2 = new Dictionary<string, string>
+        while (!cts.IsCancellationRequested)
         {
-            ["name"] = r.AdName ?? "Creative IG (link_data, user fallback)",
-            ["object_story_spec"] = JsonSerializer.Serialize(ossL2)
-        };
-        var (okL2, idL2, bodyL2) = await PostCreativeAsync(formL2);
-        if (okL2) 
-        { 
-            Trace("Creative OK (user, link)"); 
-            return idL2!; 
+            using var r = await http.GetAsync(url, cts.Token);
+            if (r.IsSuccessStatusCode)
+            {
+                using var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync(cts.Token));
+                if (Ready(doc, out lastIgEligible, out lastDims))
+                {
+                    _log.LogInformation("✓ Video ready after {Probe} probes", probe);
+                    await Task.Delay(TimeSpan.FromSeconds(2), cts.Token);
+                    return new VideoReadyInfo(lastIgEligible, lastDims);
+                }
+
+                if (++probe % 5 == 0)
+                {
+                    var root = doc.RootElement;
+                    string vs = "", ph = "";
+                    if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object)
+                    {
+                        vs = GetPropStringSafe(st, "video_status") ?? "?";
+                        ph = GetPropStringSafe(st, "processing_phase") ?? "?";
+                    }
+
+                    _log.LogInformation("⏳ Video probe {Probe}: status={VS}, phase={PH}", probe, vs, ph);
+                }
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cts.Token);
         }
-        throw new InvalidOperationException($"Creative(IG, link_data user) failed: {MetaApi.Redact(bodyL2)}");
+    }
+    catch (OperationCanceledException)
+    {
+        _log.LogError("❌ Video warmup TIMEOUT after {Probe} probes, {Timeout}s elapsed", 
+            probe, timeout.TotalSeconds);
+        throw new TimeoutException($"Видео не подготовилось за {timeout.TotalSeconds} сек");
     }
 
-    throw new InvalidOperationException($"Creative(IG, link_data actor) failed: {MetaApi.Redact(bodyL)}");
+    throw new TimeoutException("Видео слишком долго подготавливается.");
 }
+
+// ============================================
+// 3. ВЫЗОВ WaitVideoFullyWarmedAsync - ИЗМЕНИТЬ ПАРАМЕТР
+// ============================================
+// В методе RunVideoAdFlowAsync найдите строку:
+// var readyInfo = await WaitVideoFullyWarmedAsync(http, videoId, TimeSpan.FromMinutes(8), ct);
+// 
+// ЗАМЕНИТЕ НА:
+var readyInfo = await WaitVideoFullyWarmedAsync(http, videoId, TimeSpan.FromMinutes(2), ct);
+
+// ============================================
+// 4. ДОБАВИТЬ ТАЙМАУТЫ К ДОЛГИМ HTTP ЗАПРОСАМ
+// ============================================
+
+// TryGetVideoThumbUrlAsync - ДОБАВИТЬ ТАЙМАУТ
+private async Task<string?> TryGetVideoThumbUrlAsync(HttpClient http, string videoId, CancellationToken ct)
+{
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(TimeSpan.FromSeconds(10)); // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    
+    using var resp = await http.GetAsync($"{MetaApi.GraphBase}/{videoId}?fields=thumbnails{{uri}}", cts.Token); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!resp.IsSuccessStatusCode) return null;
+
+    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token)); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!doc.RootElement.TryGetProperty("thumbnails", out var th) ||
+        th.ValueKind != JsonValueKind.Object ||
+        !th.TryGetProperty("data", out var arr) ||
+        arr.ValueKind != JsonValueKind.Array)
+        return null;
+
+    using var e = arr.EnumerateArray();
+    if (!e.MoveNext()) return null;
+    var first = e.Current;
+
+    return first.TryGetProperty("uri", out var uriEl) && uriEl.ValueKind == JsonValueKind.String
+        ? uriEl.GetString()
+        : null;
+}
+
+// UploadAdImageFromUrlAsync - ДОБАВИТЬ ТАЙМАУТ
+private async Task<string?> UploadAdImageFromUrlAsync(HttpClient http, string actId, string imageUrl,
+    CancellationToken ct)
+{
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(TimeSpan.FromSeconds(15)); // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    
+    using var form = new FormUrlEncodedContent(new Dictionary<string, string> { ["url"] = imageUrl });
+    using var resp = await http.PostAsync($"{MetaApi.GraphBase}/{actId}/adimages", form, cts.Token); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!resp.IsSuccessStatusCode) return null;
+    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token)); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!doc.RootElement.TryGetProperty("images", out var images) ||
+        images.ValueKind != JsonValueKind.Object) return null;
+    foreach (var prop in images.EnumerateObject())
+        if (prop.Value.TryGetProperty("hash", out var h) && h.ValueKind == JsonValueKind.String)
+            return h.GetString();
+    return null;
+}
+
+// UploadAdImageFromBytesAsync - ДОБАВИТЬ ТАЙМАУТ
+private async Task<string?> UploadAdImageFromBytesAsync(HttpClient http, string actId, byte[] bytes,
+    string fileName, CancellationToken ct)
+{
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+    cts.CancelAfter(TimeSpan.FromSeconds(15)); // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    
+    using var mp = new MultipartFormDataContent();
+    mp.Add(new ByteArrayContent(bytes), "filename", fileName);
+    using var resp = await http.PostAsync($"{MetaApi.GraphBase}/{actId}/adimages", mp, cts.Token); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!resp.IsSuccessStatusCode) return null;
+    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token)); // ← ЗАМЕНИТЬ ct НА cts.Token
+    if (!doc.RootElement.TryGetProperty("images", out var images) ||
+        images.ValueKind != JsonValueKind.Object) return null;
+    foreach (var prop in images.EnumerateObject())
+        if (prop.Value.TryGetProperty("hash", out var h) && h.ValueKind == JsonValueKind.String)
+            return h.GetString();
+    return null;
+}
+
+// ============================================
+// 5. ДОБАВИТЬ ЛОГИРОВАНИЕ ДЛЯ ДИАГНОСТИКИ
+// ============================================
+// В начало RunVideoAdFlowAsync добавьте:
+_log.LogInformation("🚀 START RunVideoAdFlowAsync: Goal={Goal}, PageId={Page}, VideoId={Vid}", 
+    r.Goal, r.PageId, r.VideoId);
+
+// После загрузки видео добавьте:
+_log.LogInformation("📹 Video uploaded/resolved: {VideoId}", videoId);
+
+// После ожидания видео:
+_log.LogInformation("✓ Video warmed: eligible={Eligible}, dims={Dims}", 
+    readyInfo.IgEligible, readyInfo.Dims);
+
+// Перед созданием кампании:
+_log.LogInformation("📝 Creating campaign...");
+
+// Перед созданием creative:
+_log.LogInformation("🎨 Creating creative: mode={Mode}, wantsVideo={Video}", mode, wantsVideo);
+
+// В конце:
+_log.LogInformation("✅ DONE RunVideoAdFlowAsync: CampaignId={CId}, AdId={Aid}", 
+    campaignId, adId)
